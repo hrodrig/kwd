@@ -1,0 +1,10 @@
+# GoReleaser dockers_v2: copy pre-built linux binary into distroless (no BusyBox).
+# TARGETARCH is set by Docker Buildx per platform (amd64, arm64).
+FROM gcr.io/distroless/static-debian13:nonroot
+ARG TARGETARCH
+LABEL org.opencontainers.image.title="kwd"
+LABEL org.opencontainers.image.description="Kubernetes workload watchdog"
+LABEL org.opencontainers.image.source="https://github.com/hrodrig/kwd"
+COPY linux/${TARGETARCH}/kwd /usr/local/bin/kwd
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/kwd"]
