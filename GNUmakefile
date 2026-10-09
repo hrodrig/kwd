@@ -11,6 +11,9 @@ FREEBSD_ARCH ?= amd64
 OPENBSD_ARCH ?= amd64
 # Minimum total statement coverage for `make cover-check`.
 COVERAGE_MIN ?= 80
+# Tools the gates install on demand land here; keep it on PATH for the
+# invocations below (CI runners ship neither grype nor gocyclo).
+GOBIN    ?= $(shell go env GOPATH)/bin
 VERSION  ?= $(shell v=$$(cat VERSION 2>/dev/null | tr -d '\n\r'); [ -n "$$v" ] && echo "v$$v" || echo "v0.1.0")
 COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BRANCH   := $(shell b=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null); [ -n "$$b" ] && [ "$$b" != "HEAD" ] && echo "$$b" || echo "unknown")
@@ -46,18 +49,27 @@ help:
 	@echo "  $(GREEN)clean$(RESET)                     Remove ./bin/kwd, coverage.out, and $(DIST)/"
 	@echo ""
 	@echo "$(YELLOW)Test:$(RESET)"
-	@echo "  $(GREEN)test$(RESET)                      Unit tests (go test ./...)"
+	@echo "  $(GREEN)test$(RESET)                      Unit tests (go test -race ./...)"
 	@echo "  $(GREEN)cover$(RESET)                     Unit tests with coverage.out"
 	@echo "  $(GREEN)cover-check$(RESET)               Fail if total statement coverage < $(COVERAGE_MIN)% (override: COVERAGE_MIN=70)"
 	@echo ""
 	@echo "$(YELLOW)Quality:$(RESET)"
-	@echo "  $(GREEN)lint$(RESET)                      gofmt -s, go vet, gocyclo (<=14)"
+	@echo "  $(GREEN)lint$(RESET)                      check-pins, check-man-version, gofmt -s, go vet, gocyclo (<=14)"
 	@echo "  $(GREEN)lint-fix$(RESET)                  gofmt -s -w"
-	@echo "  $(GREEN)tools$(RESET)                     Install govulncheck and gocyclo to \$$GOBIN"
-	@echo "  $(GREEN)security$(RESET)                  govulncheck ./..."
+	@echo "  $(GREEN)check-pins$(RESET)                Fail if a CVE-pinned module drops below its fixed version"
+	@echo "  $(GREEN)check-man-version$(RESET)         Fail if a man page .TH drifts from VERSION"
+	@echo "  $(GREEN)gocyclo$(RESET)                   Cyclomatic complexity gate (<=14)"
+	@echo "  $(GREEN)govulncheck$(RESET)               Known-vulnerability scan of the module graph"
+	@echo "  $(GREEN)grype$(RESET)                     Vulnerability scan of the working tree (installed on demand)"
+	@echo "  $(GREEN)security$(RESET)                  govulncheck + gocyclo + grype"
+	@echo "  $(GREEN)tools$(RESET)                     Install govulncheck, gocyclo and grype"
+	@echo ""
+	@echo "$(YELLOW)Docker:$(RESET)"
+	@echo "  $(GREEN)docker-build$(RESET)              Build the image locally (kwd:$(VERSION))"
+	@echo "  $(GREEN)docker-scan$(RESET)               Build and grype-scan the image (requires Docker)"
 	@echo ""
 	@echo "$(YELLOW)Release:$(RESET)"
-	@echo "  $(GREEN)release-check$(RESET)             VERSION semver + lint + test + cover-check + security"
+	@echo "  $(GREEN)release-check$(RESET)             VERSION semver + man .TH + lint + test + cover-check + security + docker-scan"
 	@echo "  $(GREEN)release$(RESET)                   release-check then goreleaser (only from main)"
 	@echo "  $(GREEN)snapshot$(RESET)                  Goreleaser snapshot to $(DIST)/ (no tag)"
 	@echo ""
@@ -68,7 +80,9 @@ help:
 	@echo "  make cover-check"
 	@echo "  make release-check"
 
-.PHONY: build build-all install clean docker-build docker-scan install-man install-kubectl-plugin test cover cover-check lint lint-fix tools security release-check release snapshot
+.PHONY: build build-all install clean docker-build docker-scan install-man install-kubectl-plugin
+.PHONY: test cover cover-check lint lint-fix tools security release-check release snapshot
+.PHONY: check-pins check-man-version check-docker govulncheck gocyclo grype
 
 build:
 	@mkdir -p bin
@@ -93,19 +107,26 @@ clean:
 	rm -f bin/$(BINARY) coverage.out
 	rm -rf $(DIST)
 
-docker-build:
+# check-docker fails fast with an actionable message instead of letting a
+# Docker-dependent target fail halfway through.
+check-docker:
+	@command -v docker >/dev/null 2>&1 || { echo "Error: docker not found — install Docker (or skip the Docker gates)."; exit 1; }
+	@docker info >/dev/null 2>&1 || { echo "Error: the Docker daemon is not reachable — start Docker."; exit 1; }
+
+docker-build: check-docker
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
 	  --build-arg BUILDDATE=$(BUILDDATE) --build-arg BRANCH=$(BRANCH) \
 	  -t kwd:$(VERSION) .
 
-docker-scan:
+docker-scan: check-docker
 	@docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
 	  --build-arg BUILDDATE=$(BUILDDATE) --build-arg BRANCH=$(BRANCH) \
 	  -t kwd:scan .
 	@if ! command -v grype >/dev/null 2>&1; then \
-	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b $(shell go env GOPATH)/bin; \
+	  echo "grype not found — installing into $(GOBIN)..."; \
+	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b "$(GOBIN)"; \
 	fi
-	grype kwd:scan -c .grype.yaml --fail-on high
+	@PATH="$(GOBIN):$$PATH" grype kwd:scan -c .grype.yaml --fail-on high
 
 install-man:
 	@mkdir -p $(DESTDIR)$(MANDIR)/man1
@@ -117,7 +138,7 @@ install-kubectl-plugin:
 	go build -trimpath $(LDFLAGS) -o $(DESTDIR)$(BINDIR)/$(PLUGIN) ./cmd/kwd
 
 test:
-	go test ./...
+	go test -race ./...
 
 cover:
 	go test ./... -coverprofile=coverage.out -covermode=atomic
@@ -129,14 +150,44 @@ cover-check:
 	echo "Total statement coverage (internal/): $$pct% (minimum $(COVERAGE_MIN)% )"; \
 	awk -v p="$$pct" -v m="$(COVERAGE_MIN)" 'BEGIN { if (p+0 < m+0) { print "Error: coverage is below " m "% — add tests or set COVERAGE_MIN="; exit 1 } }'
 
-lint:
+# check-pins keeps the CVE pins from being walked back; check-man-version keeps
+# the man pages honest against VERSION. Both gate `lint`, hence release-check.
+check-pins:
+	@sh contrib/scripts/check-dependency-pins.sh
+
+check-man-version:
+	@expected="kwd v$$(tr -d '\n\r' < VERSION)"; \
+	status=0; \
+	for page in contrib/man/man1/kwd.1 contrib/man/man1/kubectl-kwd.1; do \
+		got=$$(grep -m1 '^\.TH' "$$page" | sed -n 's/.*"\(kwd v[^"]*\)".*/\1/p'); \
+		if [ "$$got" != "$$expected" ]; then \
+			echo "check-man-version: FAIL ($$page .TH says '$$got', VERSION is '$$expected')"; \
+			status=1; \
+		else \
+			echo "check-man-version: PASS ($$page $$got)"; \
+		fi; \
+	done; \
+	exit $$status
+
+gocyclo:
+	@echo "Running gocyclo (complexity <= 14)..."
+	@go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	@"$(shell go env GOPATH)/bin/gocyclo" -over 14 .
+
+grype:
+	@if ! command -v grype >/dev/null 2>&1; then \
+	  echo "grype not found — installing into $(GOBIN)..."; \
+	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b "$(GOBIN)"; \
+	fi
+	@echo "Running grype (working tree, --fail-on high)..."
+	@PATH="$(GOBIN):$$PATH" grype . -c .grype.yaml --fail-on high
+
+lint: check-pins check-man-version
 	@echo "Checking gofmt -s..."
 	@unformatted=$$(gofmt -s -l .); [ -z "$$unformatted" ] || { echo "Files not formatted (run: make lint-fix):"; echo "$$unformatted"; exit 1; }
 	@echo "Running go vet..."
 	@go vet ./...
-	@echo "Running gocyclo (complexity <= 14)..."
-	@go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-	@"$(shell go env GOPATH)/bin/gocyclo" -over 14 .
+	@$(MAKE) --no-print-directory gocyclo
 
 lint-fix:
 	gofmt -s -w .
@@ -144,8 +195,12 @@ lint-fix:
 tools:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	@if ! command -v grype >/dev/null 2>&1; then \
+	  echo "Installing grype into $(GOBIN)..."; \
+	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b "$(GOBIN)"; \
+	fi
 
-security:
+govulncheck:
 	@echo "Running govulncheck..."
 	@tmp=$$(mktemp); \
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./... >"$$tmp" 2>&1 || true; \
@@ -175,6 +230,8 @@ security:
 		exit 1; \
 	fi
 
+security: govulncheck gocyclo grype
+
 .PHONY: release-check
 release-check:
 	@set -e; \
@@ -186,6 +243,7 @@ release-check:
 	@$(MAKE) test
 	@$(MAKE) cover-check
 	@$(MAKE) security
+	@$(MAKE) docker-scan
 	@echo "All release checks passed."
 
 release: release-check
