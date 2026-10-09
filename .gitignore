@@ -21,6 +21,7 @@
 !.govulncheck-ignore.yaml
 !.grype.yaml
 !Dockerfile
+!Dockerfile.release
 !.dockerignore
 
 # Source
