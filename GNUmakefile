@@ -11,6 +11,9 @@ FREEBSD_ARCH ?= amd64
 OPENBSD_ARCH ?= amd64
 # Minimum total statement coverage for `make cover-check`.
 COVERAGE_MIN ?= 80
+# Tools the gates install on demand land here; keep it on PATH for the
+# invocations below (CI runners ship neither grype nor gocyclo).
+GOBIN    ?= $(shell go env GOPATH)/bin
 VERSION  ?= $(shell v=$$(cat VERSION 2>/dev/null | tr -d '\n\r'); [ -n "$$v" ] && echo "v$$v" || echo "v0.1.0")
 COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BRANCH   := $(shell b=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null); [ -n "$$b" ] && [ "$$b" != "HEAD" ] && echo "$$b" || echo "unknown")
@@ -57,9 +60,9 @@ help:
 	@echo "  $(GREEN)check-man-version$(RESET)         Fail if a man page .TH drifts from VERSION"
 	@echo "  $(GREEN)gocyclo$(RESET)                   Cyclomatic complexity gate (<=14)"
 	@echo "  $(GREEN)govulncheck$(RESET)               Known-vulnerability scan of the module graph"
-	@echo "  $(GREEN)grype$(RESET)                     Vulnerability scan of the working tree"
+	@echo "  $(GREEN)grype$(RESET)                     Vulnerability scan of the working tree (installed on demand)"
 	@echo "  $(GREEN)security$(RESET)                  govulncheck + gocyclo + grype"
-	@echo "  $(GREEN)tools$(RESET)                     Install govulncheck and gocyclo to \$$GOBIN"
+	@echo "  $(GREEN)tools$(RESET)                     Install govulncheck, gocyclo and grype"
 	@echo ""
 	@echo "$(YELLOW)Docker:$(RESET)"
 	@echo "  $(GREEN)docker-build$(RESET)              Build the image locally (kwd:$(VERSION))"
@@ -120,9 +123,10 @@ docker-scan: check-docker
 	  --build-arg BUILDDATE=$(BUILDDATE) --build-arg BRANCH=$(BRANCH) \
 	  -t kwd:scan .
 	@if ! command -v grype >/dev/null 2>&1; then \
-	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b $(shell go env GOPATH)/bin; \
+	  echo "grype not found — installing into $(GOBIN)..."; \
+	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b "$(GOBIN)"; \
 	fi
-	grype kwd:scan -c .grype.yaml --fail-on high
+	@PATH="$(GOBIN):$$PATH" grype kwd:scan -c .grype.yaml --fail-on high
 
 install-man:
 	@mkdir -p $(DESTDIR)$(MANDIR)/man1
@@ -171,8 +175,12 @@ gocyclo:
 	@"$(shell go env GOPATH)/bin/gocyclo" -over 14 .
 
 grype:
+	@if ! command -v grype >/dev/null 2>&1; then \
+	  echo "grype not found — installing into $(GOBIN)..."; \
+	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b "$(GOBIN)"; \
+	fi
 	@echo "Running grype (working tree, --fail-on high)..."
-	@grype . -c .grype.yaml --fail-on high
+	@PATH="$(GOBIN):$$PATH" grype . -c .grype.yaml --fail-on high
 
 lint: check-pins check-man-version
 	@echo "Checking gofmt -s..."
@@ -187,6 +195,10 @@ lint-fix:
 tools:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	@if ! command -v grype >/dev/null 2>&1; then \
+	  echo "Installing grype into $(GOBIN)..."; \
+	  curl -sSfL https://get.anchore.io/grype | sh -s -- -b "$(GOBIN)"; \
+	fi
 
 govulncheck:
 	@echo "Running govulncheck..."

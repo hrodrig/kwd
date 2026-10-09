@@ -33,7 +33,7 @@ jobs:
           fail_ci_if_error: false
 
   lint:
-    name: make lint (pins, man .TH, gofmt, vet, gocyclo)
+    name: gofmt + go vet + gocyclo
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
