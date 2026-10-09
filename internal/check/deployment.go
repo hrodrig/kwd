@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,8 +15,12 @@ type deploymentChecker struct{}
 // Check verifies a Deployment's readiness from its status.
 //
 // Ready conditions (SPECIFICATIONS.md §6):
-//   - readyReplicas == replicas && replicas > 0, with no Available=False
-//   - replicas == 0 (scale-to-zero) is READY — a deliberate zero, not failure.
+//   - spec.replicas == 0 (scale-to-zero) is READY — a deliberate zero, not
+//     failure.
+//   - otherwise, at least spec.replicas pods must be ready. A Deployment whose
+//     status has not observed any pod yet (fresh create, Recreate-strategy
+//     rollout window, scale-up from zero) is NOT ready — status.replicas==0
+//     means "nothing running", never "scaled to zero".
 func (deploymentChecker) Check(ctx context.Context, cs kubernetes.Interface, ref Ref) Verdict {
 	d, err := cs.AppsV1().Deployments(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 	if err != nil {
@@ -34,24 +39,48 @@ func (deploymentChecker) Check(ctx context.Context, cs kubernetes.Interface, ref
 		}
 	}
 
-	return workloadVerdict(ref, d.Status.Replicas, d.Status.ReadyReplicas)
+	return workloadVerdict(ref, desiredReplicas(d.Spec.Replicas), d.Status.Replicas, d.Status.ReadyReplicas)
 }
 
-// workloadVerdict folds common replica-based semantics shared by Deployment
-// and StatefulSet.
-func workloadVerdict(ref Ref, replicas, readyReplicas int32) Verdict {
-	// Scale-to-zero: no replicas desired is a valid, ready (idle) state.
-	if replicas == 0 {
-		return Verdict{Ref: ref, Status: Ready, Reason: "scaled to zero"}
+// desiredReplicas returns spec.replicas, defaulting to 1 when unset (the API
+// server defaults an unspecified replica count to 1).
+func desiredReplicas(spec *int32) int32 {
+	if spec == nil || *spec < 0 {
+		return 1
 	}
-	if readyReplicas != replicas {
+	return *spec
+}
+
+// workloadVerdict folds the replica-based readiness semantics shared by
+// Deployment and StatefulSet.
+//
+// desired comes from spec.replicas (what the operator asked for); observed and
+// ready come from status (what the cluster actually has). The distinction is
+// load-bearing: comparing status against itself reports READY for a workload
+// that wants replicas and has none, which is the exact window an operator is
+// watching after a rollout trigger.
+func workloadVerdict(ref Ref, desired, observed, ready int32) Verdict {
+	// Scale-to-zero: no replicas desired is a valid, ready (idle) state.
+	if desired == 0 {
+		return Verdict{Ref: ref, Status: Ready, Reason: "scaled to zero (desired replicas 0)"}
+	}
+	// More ready pods than desired is still ready (a scale-down in progress,
+	// e.g. desired 2 with 3 pods still terminating, has not lost capacity).
+	if ready >= desired {
+		return Verdict{Ref: ref, Status: Ready, Reason: fmt.Sprintf("%d/%d replicas ready", ready, desired)}
+	}
+	if observed == 0 {
 		return Verdict{
 			Ref:    ref,
 			Status: NotReady,
-			Reason: "not all replicas ready",
+			Reason: fmt.Sprintf("no pods observed yet (observed 0, ready 0, desired %d)", desired),
 		}
 	}
-	return Verdict{Ref: ref, Status: Ready, Reason: "ready"}
+	return Verdict{
+		Ref:    ref,
+		Status: NotReady,
+		Reason: fmt.Sprintf("not all replicas ready (ready %d, desired %d)", ready, desired),
+	}
 }
 
 // verdictFromError maps API errors to an Errored verdict (distinct from

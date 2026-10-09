@@ -20,4 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cluster` and `kube.context` config blocks; `--dry-run` (checks + verdict, no notify).
 - `internal/exitcode` semantics: `0` success, `1` not-ready/errored, `2` doctor preflight (reserved).
 
+### Fixed
+
+- Readiness is judged against `spec.replicas` (desired) instead of `status.replicas`: a `deployment`/`statefulset` that wants replicas but whose status has observed none — fresh create, `Recreate`-strategy rollout, or scale-up from zero — is reported **not-ready** instead of falsely **ready**. `spec.replicas: 0` remains a deliberate, ready scale-to-zero.
+
 [↑ Back to top](#top)

@@ -154,12 +154,12 @@ Full annotated sample: **`kwd --print-sample-config`** or [`configs/kwd.sample.y
 
 ## Readiness semantics
 
-`kwd` judges readiness per kind, deliberately avoiding the "stale or zero-valued status" trap:
+`kwd` judges readiness per kind against **`spec.replicas`** (what you asked for) and `status` (what the cluster reports), deliberately avoiding the "stale or zero-valued status" trap:
 
 | Kind | Ready when |
 |------|-----------|
-| `deployment` | `readyReplicas == replicas && replicas > 0`, and no `Available=False` condition. `replicas: 0` (deliberate scale-to-zero) is treated as **ready**. |
-| `statefulset` | `readyReplicas == replicas && replicas > 0`, and no `Available=False` condition. `replicas: 0` treated as **ready**. |
+| `deployment` | at least `spec.replicas` pods are ready. `spec.replicas: 0` (deliberate scale-to-zero) is treated as **ready**; a Deployment that wants replicas but has observed none (`status.replicas: 0`) is **not-ready**, and an `Available=False` condition is **not-ready**. |
+| `statefulset` | at least `spec.replicas` pods are ready; `spec.replicas: 0` is treated as **ready**, and `status.replicas: 0` with replicas wanted is **not-ready**. StatefulSets expose no `Available` condition, so none is consulted. |
 
 A resource that cannot be read (API error, RBAC denied) is reported as **`errored`**, not `not-ready` — a missing read permission must never look like "healthy".
 

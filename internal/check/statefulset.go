@@ -7,8 +7,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// statefulsetChecker checks apps/v1 StatefulSet readiness (same semantics as
-// Deployment: readyReplicas == replicas, replicas==0 = scale-to-zero ready).
+// statefulsetChecker checks apps/v1 StatefulSet readiness. Same semantics as
+// Deployment: readiness is judged against spec.replicas (desired), so
+// spec.replicas == 0 is a deliberate scale-to-zero and a StatefulSet that
+// desires replicas but has observed none is not-ready.
 type statefulsetChecker struct{}
 
 func (statefulsetChecker) Check(ctx context.Context, cs kubernetes.Interface, ref Ref) Verdict {
@@ -16,7 +18,7 @@ func (statefulsetChecker) Check(ctx context.Context, cs kubernetes.Interface, re
 	if err != nil {
 		return verdictFromError(ref, err)
 	}
-	return workloadVerdict(ref, s.Status.Replicas, s.Status.ReadyReplicas)
+	return workloadVerdict(ref, desiredReplicas(s.Spec.Replicas), s.Status.Replicas, s.Status.ReadyReplicas)
 }
 
 // NewRegistry builds the default checker registry for the supported kinds.
