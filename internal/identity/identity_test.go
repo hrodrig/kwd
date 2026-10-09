@@ -38,3 +38,28 @@ func TestResolveUnknownIsLiteral(t *testing.T) {
 		t.Fatal("unreachable empty")
 	}
 }
+
+func TestResolveTrimsWhitespace(t *testing.T) {
+	// Whitespace-only values must not be treated as a source, and the value
+	// that wins is trimmed on the way out.
+	t.Setenv(EnvID, "   ")
+	if got := Resolve("  from-config  "); got != "from-config" {
+		t.Fatalf("whitespace-only env must fall through and config must be trimmed, got %q", got)
+	}
+}
+
+func TestResolveHostnameFallback(t *testing.T) {
+	t.Setenv(EnvID, "   ")
+	got := Resolve("  ")
+
+	host, err := os.Hostname()
+	if err == nil && host != "" {
+		if got != host {
+			t.Fatalf("expected the hostname fallback %q, got %q", host, got)
+		}
+		return
+	}
+	if got == "" {
+		t.Fatal("resolve must never return an empty identity")
+	}
+}
