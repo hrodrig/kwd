@@ -33,7 +33,7 @@ jobs:
           fail_ci_if_error: false
 
   lint:
-    name: gofmt + go vet + gocyclo
+    name: make lint (pins, man .TH, gofmt, vet, gocyclo)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,19 +43,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Check gofmt
-        run: |
-          unformatted=$(gofmt -s -l .)
-          if [ -n "$unformatted" ]; then echo "Files not formatted with gofmt -s:"; echo "$unformatted"; exit 1; fi
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Install gocyclo
-        run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-
-      - name: Run gocyclo
-        run: gocyclo -over 14 .
+      # One source of truth: the Makefile target also carries check-pins (CVE
+      # pin guard) and check-man-version, so PRs enforce the same gates as
+      # `make release-check` instead of reimplementing a subset here.
+      - name: Run make lint
+        run: make lint
 
   coverage:
     name: Coverage gate (≥ 80%)
