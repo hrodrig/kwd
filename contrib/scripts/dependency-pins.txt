@@ -1,0 +1,13 @@
+# Modules pinned for a cleared CVE. One entry per line:
+#
+#   <module> <minimum-fixed-version>
+#
+# `make check-pins` (run through `make lint`) fails when a module resolves
+# below its minimum, so a later `go mod tidy` or dependency bump cannot quietly
+# walk a fix back. These are real fixes, not suppressions — keep
+# .govulncheck-ignore.yaml empty unless an advisory is a documented false
+# positive.
+#
+# Added in v0.1.0 with the govulncheck cleanup.
+golang.org/x/net v0.60.0
+golang.org/x/text v0.42.0
