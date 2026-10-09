@@ -1,0 +1,22 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/hrodrig/kwd/internal/cli"
+	"github.com/hrodrig/kwd/internal/exitcode"
+)
+
+func main() {
+	os.Exit(runMain())
+}
+
+// runMain runs the CLI and returns a process exit code (see exitcode.Of).
+func runMain() int {
+	if err := cli.Execute(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		return exitcode.Of(err)
+	}
+	return exitcode.Success
+}

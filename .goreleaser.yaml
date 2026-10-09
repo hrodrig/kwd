@@ -1,0 +1,188 @@
+# GoReleaser for kwd — same flow as kzero/pgwd: merge develop → main, tag vX.Y.Z,
+# push tag (CI runs release). Local: make release-check && make release (on main only).
+# Snapshot: make snapshot → artifacts under dist/
+
+version: 2
+
+project_name: kwd
+
+before:
+  hooks:
+    - sh -c 'gzip -c contrib/man/man1/kwd.1 > contrib/man/man1/kwd.1.gz'
+    - sh -c 'gzip -c contrib/man/man1/kubectl-kwd.1 > contrib/man/man1/kubectl-kwd.1.gz'
+
+builds:
+  - id: kwd
+    main: ./cmd/kwd
+    binary: kwd
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+      - openbsd
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s
+      - -w
+      - -X github.com/hrodrig/kwd/internal/cli.Version=v{{ .Version }}
+      - -X github.com/hrodrig/kwd/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/hrodrig/kwd/internal/cli.BuildDate={{ .Date }}
+      - -X github.com/hrodrig/kwd/internal/cli.Branch={{ .Branch }}
+  # kubectl-kwd: same main, second basename (kzero #64 pattern). kubectl plugin
+  # discovery picks kubectl-<name> on PATH for `kubectl kwd …`.
+  - id: kubectl-kwd
+    main: ./cmd/kwd
+    binary: kubectl-kwd
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+      - openbsd
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s
+      - -w
+      - -X github.com/hrodrig/kwd/internal/cli.Version=v{{ .Version }}
+      - -X github.com/hrodrig/kwd/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/hrodrig/kwd/internal/cli.BuildDate={{ .Date }}
+      - -X github.com/hrodrig/kwd/internal/cli.Branch={{ .Branch }}
+
+archives:
+  - id: default
+    ids:
+      - kwd
+      - kubectl-kwd
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ if .IsSnapshot }}v{{ .Version }}{{ else }}{{ .Tag }}{{ end }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - src: contrib/man/man1/kwd.1
+        dst: share/man/man1/kwd.1
+      - src: contrib/man/man1/kubectl-kwd.1
+        dst: share/man/man1/kubectl-kwd.1
+      - src: LICENSE
+        dst: share/doc/kwd/LICENSE
+      - src: configs/kwd.sample.yml
+        dst: share/examples/kwd/kwd.sample.yml
+
+checksum:
+  name_template: checksums.txt
+
+# Cosign keyless signing (GitHub Actions OIDC). Requires `id-token: write`
+# in release.yml and sigstore/cosign-installer. Signs checksums.txt and
+# container images pushed to ghcr.io.
+signs:
+  - cmd: cosign
+    env:
+      - COSIGN_EXPERIMENTAL=1
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - --yes
+    artifacts: checksum
+
+# SBOM (Software Bill of Materials) generation via syft.
+# One SPDX + one CycloneDX document per release (source tree catalog).
+sboms:
+  - id: kwd-sbom-spdx
+    artifacts: source
+    documents:
+      - "kwd_{{ .Version }}_sbom.spdx.json"
+    args: ["$artifact", "--output", "spdx-json=$document"]
+  - id: kwd-sbom-cdx
+    artifacts: source
+    documents:
+      - "kwd_{{ .Version }}_sbom.cyclonedx.json"
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+
+# .deb / .rpm for Linux (same pattern as kzero nfpms).
+nfpms:
+  - id: default
+    package_name: kwd
+    ids:
+      - kwd
+      - kubectl-kwd
+    file_name_template: "{{ .ProjectName }}_{{ if .IsSnapshot }}v{{ .Version }}{{ else }}{{ .Tag }}{{ end }}_{{ .Os }}_{{ .Arch }}"
+    description: Kubernetes workload readiness watchdog (also ships the kubectl-kwd plugin)
+    vendor: "Hermes Rodríguez"
+    maintainer: "Hermes Rodríguez <hrodrig@usb.ve>"
+    homepage: https://github.com/hrodrig/kwd
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: contrib/man/man1/kwd.1.gz
+        dst: /usr/share/man/man1/
+      - src: contrib/man/man1/kubectl-kwd.1.gz
+        dst: /usr/share/man/man1/
+      - src: configs/kwd.sample.yml
+        dst: /etc/kwd/kwd.yaml
+        type: config|noreplace
+
+snapshot:
+  version_template: "{{ .Env.KWD_SNAPSHOT_VERSION }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+release:
+  github:
+    owner: hrodrig
+    name: kwd
+
+# Multi-arch image to ghcr.io. Snapshots skip Docker.
+dockers_v2:
+  - disable: "{{ .IsSnapshot }}"
+    sbom: false
+    dockerfile: Dockerfile.release
+    ids:
+      - kwd
+    images:
+      - ghcr.io/hrodrig/kwd
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if not .IsSnapshot }}latest{{ end }}"
+    labels:
+      org.opencontainers.image.title: "kwd"
+      org.opencontainers.image.description: "Kubernetes workload readiness watchdog"
+      org.opencontainers.image.source: "https://github.com/hrodrig/kwd"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+
+# Cosign keyless signing for container manifests built by dockers_v2.
+docker_signs:
+  - cmd: cosign
+    env:
+      - COSIGN_EXPERIMENTAL=1
+    args:
+      - sign
+      - "${artifact}@${digest}"
+      - --yes

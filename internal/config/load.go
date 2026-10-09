@@ -1,0 +1,144 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/spf13/viper"
+)
+
+// DefaultConfigPath is the default config file path (kzero-style relative).
+const DefaultConfigPath = "kwd.yaml"
+
+// Load reads and validates kwd configuration from YAML at path. An empty path
+// falls back to DefaultConfigPath.
+func Load(path string) (*Config, error) {
+	cfgPath := path
+	if strings.TrimSpace(cfgPath) == "" {
+		cfgPath = DefaultConfigPath
+	}
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+	v.SetConfigType("yaml")
+	v.SetEnvPrefix("KWD")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	v.AutomaticEnv()
+	bindConfigEnv(v)
+
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("read config %q: %w", cfgPath, err)
+	}
+
+	var raw rawConfig
+	if err := v.Unmarshal(&raw); err != nil {
+		return nil, fmt.Errorf("decode config: %w", err)
+	}
+
+	cfg := &Config{
+		Cluster:       raw.Cluster,
+		Kube:          raw.Kube,
+		Client:        raw.Client,
+		Resources:     raw.Resources,
+		Interval:      raw.Interval,
+		Retry:         raw.Retry,
+		Timeout:       raw.Timeout,
+		Color:         raw.Color,
+		LogFormat:     raw.LogFormat,
+		DryRun:        raw.DryRun,
+		Notifications: raw.Notifications,
+	}
+
+	if err := cfg.applyDefaults(); err != nil {
+		return nil, err
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// rawConfig mirrors Config but uses mapstructure tags for viper decoding.
+type rawConfig struct {
+	Cluster       Cluster        `mapstructure:"cluster"`
+	Kube          Kube           `mapstructure:"kube"`
+	Client        Client         `mapstructure:"client"`
+	Resources     []string       `mapstructure:"resources"`
+	Interval      int            `mapstructure:"interval"`
+	Retry         Retry          `mapstructure:"retry"`
+	Timeout       time.Duration  `mapstructure:"timeout"`
+	Color         string         `mapstructure:"color"`
+	LogFormat     string         `mapstructure:"log_format"`
+	DryRun        bool           `mapstructure:"dry_run"`
+	Notifications *Notifications `mapstructure:"notifications"`
+}
+
+// bindConfigEnv links nested YAML keys to KWD_* variables so Unmarshal picks
+// up overrides.
+func bindConfigEnv(v *viper.Viper) {
+	for _, key := range []string{
+		"cluster.name",
+		"cluster.environment",
+		"cluster.description",
+		"kube.context",
+		"client.id",
+		"interval",
+		"notifications",
+	} {
+		_ = v.BindEnv(key)
+	}
+}
+
+// applyDefaults fills zero values with defaults.
+func (c *Config) applyDefaults() error {
+	c.Color = strings.TrimSpace(c.Color)
+	if c.Color == "" {
+		c.Color = "auto"
+	}
+	c.LogFormat = strings.TrimSpace(c.LogFormat)
+	if c.LogFormat == "" {
+		c.LogFormat = "text"
+	}
+	if c.Retry.Attempts == 0 {
+		c.Retry.Attempts = 3
+	}
+	if c.Retry.InitialBackoff == 0 {
+		c.Retry.InitialBackoff = time.Second
+	}
+	if c.Retry.MaxBackoff == 0 {
+		c.Retry.MaxBackoff = 8 * time.Second
+	}
+	if c.Timeout == 0 {
+		c.Timeout = 10 * time.Second
+	}
+	return nil
+}
+
+// validate enforces the config contract from SPECIFICATIONS.md §5.
+func (c *Config) validate() error {
+	if c.Resources == nil || len(c.Resources) == 0 {
+		return fmt.Errorf("resources must be a non-empty list of kind.namespace/name references")
+	}
+	for _, ref := range c.Resources {
+		if err := validateResourceRef(ref); err != nil {
+			return err
+		}
+	}
+	if c.Retry.InitialBackoff > c.Retry.MaxBackoff {
+		return fmt.Errorf("retry.initial_backoff (%s) must be <= retry.max_backoff (%s)",
+			c.Retry.InitialBackoff, c.Retry.MaxBackoff)
+	}
+	switch c.Color {
+	case "auto", "always", "never":
+	default:
+		return fmt.Errorf("color must be one of auto, always, never (got %q)", c.Color)
+	}
+	switch c.LogFormat {
+	case "text", "json":
+	default:
+		return fmt.Errorf("log_format must be one of text, json (got %q)", c.LogFormat)
+	}
+	return nil
+}

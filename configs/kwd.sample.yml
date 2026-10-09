@@ -1,0 +1,50 @@
+# kwd sample configuration.
+# A single kwd process watches exactly one cluster. Run N instances for N clusters.
+
+# cluster: metadata describing WHAT is being watched (optional; name recommended).
+cluster:
+  name: "example-cluster"
+  environment: "dev"
+  description: "Reference profile for kwd"
+
+# kube: Kubernetes target selection. context empty = current-context.
+kube:
+  context: ""
+
+# client: the watching identity ("who watches"). Empty resolves via cascade:
+# KWD_CLIENT_ID -> client.id -> hostname -> IPv4 -> MAC -> unknown.
+client:
+  id: ""
+
+# resources: declared set of kind.namespace/name references (v0: deployment, statefulset).
+resources:
+  - deployment.default/my-app
+  - statefulset.default/my-db
+
+# interval: check interval in seconds. 0 = run once (single-pass, exit 0/1).
+interval: 0
+
+# retry: per-check retry backoff (initial_backoff must be <= max_backoff).
+retry:
+  attempts: 3
+  initial_backoff: 1s
+  max_backoff: 8s
+
+# timeout: maximum duration of a single check attempt.
+timeout: 10s
+
+# color: auto (default) | always | never.
+color: auto
+
+# log_format: text (default) | json.
+log_format: text
+
+# dry_run: print the verdict but do not send notifications.
+dry_run: false
+
+# notifications: multi-sink. Omit entirely to disable notifications.
+# Sinks use *secret env vars* (never inline secrets). v0: slack.
+notifications:
+  sinks:
+    - type: slack
+      # requires KWD_SLACK_WEBHOOK env var to be set

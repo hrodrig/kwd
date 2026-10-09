@@ -1,0 +1,111 @@
+.\" kwd(1) - Kubernetes workload readiness watchdog
+.\" Manual page for kwd
+.TH KWD 1 "2026-10-08" "kwd v0.1.0" "User Commands"
+.SH NAME
+kwd \- Kubernetes workload readiness watchdog
+.SH SYNOPSIS
+.B kwd
+.I command
+[\fIoptions\fR]
+.SH DESCRIPTION
+.B kwd
+is a Go CLI that checks the
+.B readiness
+of the Kubernetes workloads you declare in YAML, in a single pass, and reports
+the verdict via its exit code (
+.BR 0
+= all ready,
+.BR 1
+= any not-ready or errored).
+It uses
+.B client-go
+directly (no
+.BR kubectl
+binary) and selects its target cluster by kubeconfig context.
+.PP
+In v0.1.0, kwd checks
+.B deployment
+and
+.B statefulset
+kinds, runs once per invocation (
+.IR "interval: 0" ),
+and can send a Slack notification when a resource is not ready.
+.SH COMMANDS
+.TP
+.B check
+Run a readiness check over declared resources (also the default for bare
+.BR kwd ).
+.TP
+.B analyze
+Validate config and print the normalized check plan (no cluster contact).
+.TP
+.B target
+Print the resolved Kubernetes API target (cluster and context name).
+.TP
+.B notify test
+Notification helper (reserved; reports not available in v0.1.0).
+.TP
+.B version
+Print version, commit, build date, and branch.
+.TP
+.B completion \fIbash|zsh|fish|powershell\fR
+Write a shell completion script to stdout.
+.PP
+Release packages also ship
+.B kubectl\-kwd
+(same CLI). With that binary on
+.BR PATH ,
+invoke as
+.B kubectl kwd \fIsubcommand\fR
+\&.
+.SH OPTIONS
+.TP
+.BR \-\-config " \fIpath\fR"
+Config file path. Default when omitted:
+.IR ./kwd.yaml .
+.TP
+.BR \-\-print\-sample\-config
+Write the sample config to stdout and exit (same as
+.IR configs/kwd.sample.yml ).
+.SH CONFIGURATION
+Configuration is a YAML file with these top-level blocks:
+.IR cluster ,
+.IR kube ,
+.IR client ,
+.IR resources ,
+.IR interval ,
+.IR notifications ,
+.IR dry_run .
+Resource refs use
+.IR kind.namespace/name
+(e.g.
+.IR deployment.default/web ,
+.IR statefulset.myns/redis ).
+.PP
+Environment variables with prefix
+.B KWD_
+override YAML when loaded (e.g.
+.BR KWD_CLIENT_ID ,
+.BR KWD_KUBE_CONTEXT ,
+.BR KWD_DRY_RUN ).
+The Slack webhook is read from
+.BR KWD_SLACK_WEBHOOK
+(fail-closed when a Slack sink is declared but the variable is missing).
+.SH EXIT STATUS
+.TP
+.B 0
+Success \- all declared resources ready.
+.TP
+.B 1
+One or more resources not-ready or errored.
+.TP
+.B 2
+Reserved for
+.B doctor
+RBAC preflight (later release).
+.SH SEE ALSO
+.BR kubectl (1)
+.PP
+Project: https://github.com/hrodrig/kwd
+.SH AUTHOR
+Hermes Rodríguez <https://github.com/hrodrig>

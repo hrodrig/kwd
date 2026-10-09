@@ -1,0 +1,27 @@
+.\" kubectl-kwd(1) - kwd as a kubectl plugin
+.\" Manual page for kubectl-kwd
+.TH KUBECTL\-KWD 1 "2026-10-08" "kwd v0.1.0" "User Commands"
+.SH NAME
+kubectl\-kwd \- run kwd as a kubectl plugin
+.SH SYNOPSIS
+.B kubectl kwd
+.I command
+[\fIoptions\fR]
+.SH DESCRIPTION
+.B kubectl\-kwd
+is the
+.B kwd
+CLI packaged under the
+.I kubectl-
+prefix so kubectl plugin discovery resolves it as
+.BR "kubectl kwd" .
+It is the same binary and accepts the same commands and flags; see
+.BR kwd (1)
+for the full manual.
+.SH SEE ALSO
+.BR kwd (1),
+.BR kubectl (1)
+.PP
+Project: https://github.com/hrodrig/kwd
+.SH AUTHOR
+Hermes Rodríguez <https://github.com/hrodrig>
