@@ -24,4 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Readiness is judged against `spec.replicas` (desired) instead of `status.replicas`: a `deployment`/`statefulset` that wants replicas but whose status has observed none — fresh create, `Recreate`-strategy rollout, or scale-up from zero — is reported **not-ready** instead of falsely **ready**. `spec.replicas: 0` remains a deliberate, ready scale-to-zero.
 
+### Security
+
+- Cleared 12 reachable `govulncheck` advisories: bumped `golang.org/x/net` to v0.60.0 and `golang.org/x/text` to v0.42.0 (pulling `golang.org/x/sys` v0.48.0 and `x/term` v0.46.0), and pinned the toolchain to Go 1.27.2 for the patched standard library. `make security` fails again on any new advisory.
+
 [↑ Back to top](#top)

@@ -8,7 +8,7 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/hrodrig/kwd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go 1.26.6](https://img.shields.io/badge/Go-1.26.6-00ADD8.svg)](https://go.dev/dl/)
+[![Go 1.27.2](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://go.dev/dl/)
 [![CI](https://github.com/hrodrig/kwd/actions/workflows/ci.yml/badge.svg)](https://github.com/hrodrig/kwd/actions/workflows/ci.yml)
 [![pkg.go.dev](https://pkg.go.dev/badge/github.com/hrodrig/kwd)](https://pkg.go.dev/github.com/hrodrig/kwd)
 [![deps.dev](https://img.shields.io/badge/deps.dev-go%20module-blue)](https://deps.dev/go/github.com%2Fhrodrig%2Fkwd)
@@ -292,7 +292,7 @@ make cover-check   # fail if total statement coverage < 80%
 
 ## Docker
 
-**Build from source** — multi-stage `Dockerfile` (Go 1.26.6 build; **distroless/static-debian13:nonroot** runtime): static binary, non-root, no Alpine OS packages.
+**Build from source** — multi-stage `Dockerfile` (Go 1.27.2 build; **distroless/static-debian13:nonroot** runtime): static binary, non-root, no Alpine OS packages.
 
 ```bash
 make docker-build
