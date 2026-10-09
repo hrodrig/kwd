@@ -198,7 +198,7 @@ http:
 # resources to watch: kind.namespace/name (kzero-style compact refs)
 # supported kinds: deployment, statefulset, daemonset, service, pvc
 resources:
-  - deployment.app/webui
+  - deployment.app/frontend
   - statefulset.data/job-queue
   - daemonset.monitoring/fluent-bit
   - service.app/my-api
