@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
-## [Unreleased]
+## [0.1.0] - 2026-10-09
 
 ### Added
 
@@ -29,3 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cleared 12 reachable `govulncheck` advisories: bumped `golang.org/x/net` to v0.60.0 and `golang.org/x/text` to v0.42.0 (pulling `golang.org/x/sys` v0.48.0 and `x/term` v0.46.0), and pinned the toolchain to Go 1.27.2 for the patched standard library. `make security` fails again on any new advisory.
 
 [↑ Back to top](#top)
+
+[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/hrodrig/kwd/releases/tag/v0.1.0
