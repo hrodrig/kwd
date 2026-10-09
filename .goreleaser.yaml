@@ -102,6 +102,13 @@ signs:
       - --yes
     artifacts: checksum
 
+# Source archive. Required by the `sboms` pipe below: it catalogs
+# `artifacts: source`, so without this pipe syft receives no artifact and both
+# documents are skipped with only a warning ("no artifacts matching current
+# filters") — which is how the v0.1.0 release shipped without SBOMs.
+source:
+  enabled: true
+
 # SBOM (Software Bill of Materials) generation via syft.
 # One SPDX + one CycloneDX document per release (source tree catalog).
 sboms:
