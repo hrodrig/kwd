@@ -8,7 +8,7 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/hrodrig/kwd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go 1.26.6](https://img.shields.io/badge/Go-1.26.6-00ADD8.svg)](https://go.dev/dl/)
+[![Go 1.27.2](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://go.dev/dl/)
 [![CI](https://github.com/hrodrig/kwd/actions/workflows/ci.yml/badge.svg)](https://github.com/hrodrig/kwd/actions/workflows/ci.yml)
 [![pkg.go.dev](https://pkg.go.dev/badge/github.com/hrodrig/kwd)](https://pkg.go.dev/github.com/hrodrig/kwd)
 [![deps.dev](https://img.shields.io/badge/deps.dev-go%20module-blue)](https://deps.dev/go/github.com%2Fhrodrig%2Fkwd)
@@ -154,12 +154,12 @@ Full annotated sample: **`kwd --print-sample-config`** or [`configs/kwd.sample.y
 
 ## Readiness semantics
 
-`kwd` judges readiness per kind, deliberately avoiding the "stale or zero-valued status" trap:
+`kwd` judges readiness per kind against **`spec.replicas`** (what you asked for) and `status` (what the cluster reports), deliberately avoiding the "stale or zero-valued status" trap:
 
 | Kind | Ready when |
 |------|-----------|
-| `deployment` | `readyReplicas == replicas && replicas > 0`, and no `Available=False` condition. `replicas: 0` (deliberate scale-to-zero) is treated as **ready**. |
-| `statefulset` | `readyReplicas == replicas && replicas > 0`, and no `Available=False` condition. `replicas: 0` treated as **ready**. |
+| `deployment` | at least `spec.replicas` pods are ready. `spec.replicas: 0` (deliberate scale-to-zero) is treated as **ready**; a Deployment that wants replicas but has observed none (`status.replicas: 0`) is **not-ready**, and an `Available=False` condition is **not-ready**. |
+| `statefulset` | at least `spec.replicas` pods are ready; `spec.replicas: 0` is treated as **ready**, and `status.replicas: 0` with replicas wanted is **not-ready**. StatefulSets expose no `Available` condition, so none is consulted. |
 
 A resource that cannot be read (API error, RBAC denied) is reported as **`errored`**, not `not-ready` — a missing read permission must never look like "healthy".
 
@@ -292,7 +292,7 @@ make cover-check   # fail if total statement coverage < 80%
 
 ## Docker
 
-**Build from source** — multi-stage `Dockerfile` (Go 1.26.6 build; **distroless/static-debian13:nonroot** runtime): static binary, non-root, no Alpine OS packages.
+**Build from source** — multi-stage `Dockerfile` (Go 1.27.2 build; **distroless/static-debian13:nonroot** runtime): static binary, non-root, no Alpine OS packages.
 
 ```bash
 make docker-build

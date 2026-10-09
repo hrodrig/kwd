@@ -12,9 +12,13 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+// int32p returns a pointer to v (replica counts are pointers in the k8s API).
+func int32p(v int32) *int32 { return &v }
+
 func TestCheckWithClientAllReady(t *testing.T) {
 	cs := fake.NewSimpleClientset(&appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
 		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
 	})
 	cfg := &config.Config{Resources: []string{"deployment.default/app"}}
@@ -32,6 +36,7 @@ func TestCheckWithClientAllReady(t *testing.T) {
 func TestCheckWithClientNotReady(t *testing.T) {
 	cs := fake.NewSimpleClientset(&appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(3)},
 		Status:     appsv1.DeploymentStatus{Replicas: 3, ReadyReplicas: 1},
 	})
 	cfg := &config.Config{Resources: []string{"deployment.default/app"}}
@@ -49,6 +54,7 @@ func TestCheckWithClientNotReady(t *testing.T) {
 func TestCheckWithClientDryRunSuppressesNotify(t *testing.T) {
 	cs := fake.NewSimpleClientset(&appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
 		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
 	})
 	// Notifications configured but dry_run true — no env set, but dry-run must
@@ -74,6 +80,7 @@ func TestCheckWithClientDryRunSuppressesNotify(t *testing.T) {
 func TestCheckWithClientFailClosedMissingWebhook(t *testing.T) {
 	cs := fake.NewSimpleClientset(&appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
 		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
 	})
 	cfg := &config.Config{
