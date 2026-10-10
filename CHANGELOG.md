@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+[↑ Back to top](#top)
+
+## [0.2.0] - 2026-10-10
+
 ### Added
 
 - Daemon loop when `interval > 0` (or `kwd check --interval N` / `KWD_INTERVAL`): serial check → wait → check, notify on overall ready ↔ not-ready transitions (alert and resolution), readiness table on transition only, SIGINT/SIGTERM → exit 0. No `--daemon` flag.
@@ -47,5 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
-[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hrodrig/kwd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hrodrig/kwd/releases/tag/v0.1.0
