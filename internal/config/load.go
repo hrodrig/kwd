@@ -130,6 +130,9 @@ func (c *Config) validate() error {
 		return fmt.Errorf("retry.initial_backoff (%s) must be <= retry.max_backoff (%s)",
 			c.Retry.InitialBackoff, c.Retry.MaxBackoff)
 	}
+	if c.Interval < 0 {
+		return fmt.Errorf("interval must be >= 0 (got %d)", c.Interval)
+	}
 	switch c.Color {
 	case "auto", "always", "never":
 	default:

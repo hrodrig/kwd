@@ -1,7 +1,8 @@
 // Package engine drives the kwd check. It is the single place that knows the
-// configured resources and the cluster client; it does NOT know about ticks,
-// hysteresis, or HTTP (those are v2, layered on Run.Daemon). The check itself
-// lives in internal/check — the engine just runs the registry over the refs.
+// configured resources and the cluster client. Daemon (interval > 0) layers a
+// serial forever loop on Once; hysteresis and HTTP remain later phases. The
+// check itself lives in internal/check — the engine just runs the registry
+// over the refs (same path for single-pass and daemon).
 package engine
 
 import (

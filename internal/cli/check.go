@@ -34,6 +34,12 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// D-01: YAML → KWD_INTERVAL (via Viper) → flag. Apply only when Changed
+	// so an unset --interval default of 0 does not force single-pass over YAML.
+	if cmd.Flags().Changed("interval") {
+		cfg.Interval = intervalFlag
+	}
+
 	restCfg, err := cluster.LoadRESTConfig("", cfg.Kube.Context)
 	if err != nil {
 		return exitcode.New(exitcode.Failure, fmt.Errorf("cluster: %w", err))
@@ -46,13 +52,34 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	return checkWithClient(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cfg, cs)
 }
 
-// checkWithClient runs the single-pass check against cs, renders the report,
-// sends notifications (unless dry-run), and returns a non-nil error (carrying
-// exit code 1) when any resource is not ready.
+// checkWithClient runs a single-pass check (Interval == 0) or Engine.Daemon
+// (Interval > 0) against cs. Single-pass: table + notify-on-not-ready + exit
+// 0/1. Daemon: transition notify only; returns nil on cancel (D-07 — do not
+// map last-tick health to Failure).
 func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Config, cs kubernetes.Interface) error {
 	clientID := identity.Resolve(cfg.Client.ID)
-
 	eng := engine.New(cfg, cs, check.NewRegistry())
+
+	if cfg.Interval > 0 {
+		return eng.Daemon(ctx, engine.DaemonOptions{
+			OnTick: func(verdicts []check.Verdict, transitioned bool) {
+				// Full per-tick log polish is plan 02 (D-03); keep quiet here.
+				_ = verdicts
+				_ = transitioned
+			},
+			OnTransition: func(ctx context.Context, alert bool, verdicts []check.Verdict) error {
+				report.WriteTable(out, verdicts)
+				if cfg.DryRun {
+					return nil
+				}
+				if err := sendTransitionNotification(ctx, cfg, clientID, alert, verdicts); err != nil {
+					_, _ = fmt.Fprintln(errOut, "notify:", err)
+				}
+				return nil
+			},
+		})
+	}
+
 	verdicts := eng.Once(ctx)
 
 	report.WriteTable(out, verdicts)
@@ -72,6 +99,12 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 // sendNotification builds sinks from config + env and sends a single alert for
 // the not-ready verdicts. Fail-closed: a missing *_env secret is an error.
 func sendNotification(ctx context.Context, cfg *config.Config, clientID string, verdicts []check.Verdict) error {
+	return sendTransitionNotification(ctx, cfg, clientID, true, verdicts)
+}
+
+// sendTransitionNotification fans out an alert (alert=true) or resolution
+// (alert=false). SPEC-full Message fields land in plan 02; text is minimal here.
+func sendTransitionNotification(ctx context.Context, cfg *config.Config, clientID string, alert bool, verdicts []check.Verdict) error {
 	if cfg.Notifications == nil || len(cfg.Notifications.Sinks) == 0 {
 		return nil // notifications disabled
 	}
@@ -88,10 +121,14 @@ func sendNotification(ctx context.Context, cfg *config.Config, clientID string, 
 		senders = append(senders, &notify.Slack{WebhookURL: url})
 	}
 
+	text := buildAlertText(verdicts)
+	if !alert {
+		text = buildResolveText(verdicts)
+	}
 	msg := notify.Message{
 		ClientID: clientID,
 		Cluster:  cfg.Cluster.Name,
-		Text:     buildAlertText(verdicts),
+		Text:     text,
 	}
 	return notify.FanOut(ctx, senders, msg)
 }
@@ -108,6 +145,14 @@ func buildAlertText(verdicts []check.Verdict) string {
 		if v.Status != check.Ready {
 			s += fmt.Sprintf("\n- %s: %s", v.Ref.String(), v.Status)
 		}
+	}
+	return s
+}
+
+func buildResolveText(verdicts []check.Verdict) string {
+	s := "kwd: all resources ready"
+	for _, v := range verdicts {
+		s += fmt.Sprintf("\n- %s: %s", v.Ref.String(), v.Status)
 	}
 	return s
 }

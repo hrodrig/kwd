@@ -100,3 +100,29 @@ color: neon
 		t.Fatal("expected error for invalid color")
 	}
 }
+
+func TestLoadRejectsNegativeInterval(t *testing.T) {
+	p := writeTempConfig(t, `
+resources:
+  - deployment.default/app
+interval: -1
+`)
+	if _, err := Load(p); err == nil {
+		t.Fatal("expected error for interval < 0")
+	}
+}
+
+func TestLoadAcceptsZeroInterval(t *testing.T) {
+	p := writeTempConfig(t, `
+resources:
+  - deployment.default/app
+interval: 0
+`)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("interval 0 should load: %v", err)
+	}
+	if cfg.Interval != 0 {
+		t.Fatalf("interval = %d", cfg.Interval)
+	}
+}

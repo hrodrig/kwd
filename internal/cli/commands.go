@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -17,12 +18,23 @@ var errPrintSampleDone = errors.New("sample config printed")
 var (
 	configPath        string
 	printSampleConfig bool
+	// intervalFlag is the --interval override on check only (D-01). Applied
+	// after loadConfig only when Flags().Changed("interval") so YAML →
+	// KWD_INTERVAL → flag precedence holds. Not registered on root —
+	// bare `kwd` uses YAML/env interval only.
+	intervalFlag int
 )
 
 // Execute runs the root command and returns any error (mapped to an exit code
-// by cmd/kwd/main.go).
+// by cmd/kwd/main.go). Prefer ExecuteContext from main so SIGINT/SIGTERM
+// cancel Daemon cleanly (D-07).
 func Execute() error {
-	err := NewRootCmd().Execute()
+	return ExecuteContext(context.Background())
+}
+
+// ExecuteContext runs the root command with ctx (typically signal.NotifyContext).
+func ExecuteContext(ctx context.Context) error {
+	err := NewRootCmd().ExecuteContext(ctx)
 	if errors.Is(err, errPrintSampleDone) {
 		return nil
 	}
@@ -54,6 +66,13 @@ func NewRootCmd() *cobra.Command {
 
 	root.PersistentFlags().StringVar(&configPath, "config", config.DefaultConfigPath, "path to config file")
 	root.PersistentFlags().BoolVar(&printSampleConfig, "print-sample-config", false, "print sample kwd.yml to stdout and exit")
+
+	// --interval on check only (D-01). No --daemon flag (D-02): interval alone
+	// selects single-pass (0) vs forever loop (>0). Guard Lookup: checkCommand
+	// is a package-level var reused across NewRootCmd calls in tests.
+	if checkCommand.Flags().Lookup("interval") == nil {
+		checkCommand.Flags().IntVar(&intervalFlag, "interval", 0, "override interval seconds (0 = single-pass; >0 = daemon loop)")
+	}
 
 	root.AddCommand(checkCommand)
 	root.AddCommand(newAnalyzeCmd())

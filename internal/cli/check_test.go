@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hrodrig/kwd/internal/check"
 	"github.com/hrodrig/kwd/internal/config"
@@ -153,5 +155,105 @@ func TestSinkCount(t *testing.T) {
 	}}
 	if got := sinkCount(cfg); got != 2 {
 		t.Fatalf("expected 2 sinks, got %d", got)
+	}
+}
+
+func TestIntervalFlagChangedOverridesConfig(t *testing.T) {
+	root := NewRootCmd()
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		intervalFlag = 0
+		if f := checkCmd.Flags().Lookup("interval"); f != nil {
+			f.Changed = false
+		}
+	})
+	if err := checkCmd.Flags().Set("interval", "30"); err != nil {
+		t.Fatal(err)
+	}
+	if !checkCmd.Flags().Changed("interval") {
+		t.Fatal("expected interval flag Changed after Set")
+	}
+	if got, _ := checkCmd.Flags().GetInt("interval"); got != 30 {
+		t.Fatalf("interval flag = %d, want 30", got)
+	}
+	// D-01 apply path: Changed → override YAML/env value.
+	cfg := &config.Config{Interval: 10}
+	if checkCmd.Flags().Changed("interval") {
+		cfg.Interval = intervalFlag
+	}
+	if cfg.Interval != 30 {
+		t.Fatalf("Changed override: got %d, want 30", cfg.Interval)
+	}
+}
+
+func TestIntervalFlagUnsetLeavesYAML(t *testing.T) {
+	root := NewRootCmd()
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkCmd.Flags().Changed("interval") {
+		t.Fatal("unset interval must not be Changed")
+	}
+}
+
+func TestNoDaemonFlag(t *testing.T) {
+	root := NewRootCmd()
+	if root.Flags().Lookup("daemon") != nil || root.PersistentFlags().Lookup("daemon") != nil {
+		t.Fatal("root must not register --daemon (D-02)")
+	}
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkCmd.Flags().Lookup("daemon") != nil {
+		t.Fatal("check must not register --daemon (D-02)")
+	}
+	if checkCmd.Flags().Lookup("interval") == nil {
+		t.Fatal("check must register --interval (D-01)")
+	}
+}
+
+func TestCheckWithClientDaemonCancelNil(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  60, // large; we cancel before second tick
+		Timeout:   2 * time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errOut bytes.Buffer
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- checkWithClient(ctx, &out, &errOut, cfg, cs)
+	}()
+	// First pass prints table on transition only when unhealthy; healthy
+	// baseline is silent. Give the first Once a moment, then cancel.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("daemon cancel must return nil, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("checkWithClient daemon did not exit on cancel")
+	}
+}
+
+func TestBuildResolveText(t *testing.T) {
+	verdicts := []check.Verdict{
+		{Ref: check.Ref{Kind: "deployment", Namespace: "default", Name: "app"}, Status: check.Ready},
+	}
+	s := buildResolveText(verdicts)
+	if !strings.Contains(s, "all resources ready") {
+		t.Fatalf("resolve text: %q", s)
 	}
 }
