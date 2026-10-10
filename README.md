@@ -302,9 +302,9 @@ This installs the binary to `$GOBIN` (default `$HOME/go/bin`). Ensure `$GOBIN` i
 | **Alpine / tarball** | `wget -qO- https://github.com/hrodrig/kwd/releases/download/v0.2.0/kwd_v0.2.0_linux_amd64.tar.gz \| tar -xzf - -C /usr/local/bin` |
 | **FreeBSD** | Port skeleton in [`contrib/freebsd/`](contrib/freebsd/) — not yet in the official ports tree. Local: `make port-freebsd-sync && make dist-freebsd`, then install from that port. Or use a [release](https://github.com/hrodrig/kwd/releases) FreeBSD tarball / `go install`. |
 | **OpenBSD** | Port skeleton in [`contrib/openbsd/port/`](contrib/openbsd/port/) — submit to `ports@openbsd.org` when ready. Local: `make port-openbsd-sync && make dist-openbsd`. Or use a release OpenBSD tarball / `go install`. |
-| **Homebrew** | Tap **not published yet** — use `go install` or a release binary |
+| **Homebrew** | `brew install hrodrig/kwd/kwd` ([homebrew-kwd](https://github.com/hrodrig/homebrew-kwd); cask updated by GoReleaser on each tag) |
 
-**kubectl plugin:** `make install-kubectl-plugin` installs a `kubectl-kwd` shim so `kubectl kwd …` works; a krew manifest is planned.
+**kubectl plugin:** the Homebrew cask and release tarballs ship **`kubectl-kwd`** so `kubectl kwd …` works; `make install-kubectl-plugin` installs a local shim. A krew manifest is planned.
 
 [↑ Back to top](#top)
 
@@ -366,7 +366,7 @@ Use in-cluster config, or mount a kubeconfig to check a remote cluster.
 
 | Slice | Scope |
 |-------|-------|
-| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew / Homebrew; submit FreeBSD/OpenBSD ports upstream |
+| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew; submit FreeBSD/OpenBSD ports upstream |
 
 Each slice is additive on the same check path. Behavior details: [SPECIFICATIONS.md](SPECIFICATIONS.md). Product notes: [docs/README.md](docs/README.md).
 

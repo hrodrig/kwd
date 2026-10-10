@@ -193,3 +193,41 @@ docker_signs:
       - sign
       - "${artifact}@${digest}"
       - --yes
+
+# Homebrew: publish cask to https://github.com/hrodrig/homebrew-kwd
+# (brew install hrodrig/kwd/kwd). CI: set repo secret HOMEBREW_TAP_TOKEN
+# (PAT with contents:write on the tap repo; GITHUB_TOKEN cannot push there).
+homebrew_casks:
+  - name: kwd
+    ids:
+      - default
+    binaries:
+      - kwd
+      - kubectl-kwd
+    directory: Casks
+    homepage: "https://github.com/hrodrig/kwd"
+    description: "Kubernetes workload readiness watchdog (also ships kubectl-kwd)"
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    commit_author:
+      name: Hermes Rodríguez
+      email: hrodrig@usb.ve
+    repository:
+      owner: hrodrig
+      name: homebrew-kwd
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    manpages:
+      - share/man/man1/kwd.1
+      - share/man/man1/kubectl-kwd.1
+    caveats: |
+      Sample configuration is not bundled with the Homebrew cask.
+      Generate it with `kwd --print-sample-config > kwd.yml`.
+      kubectl plugin: `kubectl plugin list | grep kwd` after install.
+      Operator docs: https://github.com/hrodrig/kwd-selfhosted
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/kwd"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/kubectl-kwd"]
+          end
