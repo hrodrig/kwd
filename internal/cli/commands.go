@@ -23,7 +23,8 @@ var (
 	// KWD_INTERVAL → flag precedence holds. Not registered on root —
 	// bare `kwd` uses YAML/env interval only.
 	intervalFlag int
-	// Phase 3 D-20 confirm/repeat overrides (Changed only). --listen is plan 03-02.
+	// Phase 3 D-20 listen/confirm/repeat overrides (Changed only).
+	listenFlag            string
 	confirmAlertFlag      int
 	confirmOkFlag         int
 	repeatWhileFiringFlag bool
@@ -74,10 +75,13 @@ func NewRootCmd() *cobra.Command {
 	// --interval on check only (D-01). No --daemon flag (D-02): interval alone
 	// selects single-pass (0) vs forever loop (>0). Guard Lookup: checkCommand
 	// is a package-level var reused across NewRootCmd calls in tests.
-	// D-20 confirm/repeat flags; --listen deferred to plan 03-02. Full YAML↔CLI
-	// matrix for every config key is backlog (D-21).
+	// D-20 listen/confirm/repeat flags. health_path/metrics_path YAML-only.
+	// Full YAML↔CLI matrix for every config key is backlog (D-21).
 	if checkCommand.Flags().Lookup("interval") == nil {
 		checkCommand.Flags().IntVar(&intervalFlag, "interval", 0, "override interval seconds (0 = single-pass; >0 = daemon loop)")
+	}
+	if checkCommand.Flags().Lookup("listen") == nil {
+		checkCommand.Flags().StringVar(&listenFlag, "listen", "", "override http.listen (daemon only; empty = off)")
 	}
 	if checkCommand.Flags().Lookup("confirm-alert") == nil {
 		checkCommand.Flags().IntVar(&confirmAlertFlag, "confirm-alert", 1, "consecutive unhealthy ticks before alert notify")

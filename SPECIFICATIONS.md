@@ -131,6 +131,10 @@ is given) — plus a small set of read-only helpers modeled on `kzero`.
 | `--config` | Path to the YAML config file | `kwd.yaml` |
 | `--kubeconfig` | Path to kubeconfig for `client-go` | `KUBECONFIG` env, then `~/.kube/config` |
 | `--interval` | Override `interval` (seconds; `0` = single-pass) | from config |
+| `--listen` | Override `http.listen` (daemon only; empty = HTTP off) | from config / `KWD_HTTP_LISTEN` |
+| `--confirm-alert` | Override `confirm_alert` (consecutive unhealthy ticks before alert) | from config / `KWD_CONFIRM_ALERT` |
+| `--confirm-ok` | Override `confirm_ok` (consecutive ready ticks before resolve) | from config / `KWD_CONFIRM_OK` |
+| `--repeat-while-firing` | Override `repeat_while_firing` (re-notify every gap while firing) | from config / `KWD_REPEAT_WHILE_FIRING` |
 | `--dry-run` | Run checks and print the verdict, but do not send notifications | `false` |
 | `--color` | Colorize output | `auto` (`always` / `never`) |
 | `--log-format` | Engine log line format | `text` (`json`) |
@@ -139,7 +143,10 @@ is given) — plus a small set of read-only helpers modeled on `kzero`.
 | `--version` | Print version and build metadata | — |
 
 `--show-sample-config`, `--version`, `analyze`, `target`, and `doctor` never
-send notifications. `--interval` takes effect only on `check`.
+send notifications. `--interval`, `--listen`, `--confirm-alert`, `--confirm-ok`,
+and `--repeat-while-firing` take effect only on `check`, and only when the flag
+is set (`Flags().Changed`). `http.health_path` and `http.metrics_path` are
+YAML-only in this version. Remaining YAML keys may gain CLI overrides later.
 
 Exit codes:
 
@@ -386,11 +393,21 @@ notification is re-sent every `interval` while the bad state persists
 
 When `http.listen` is set and `interval > 0`, `kwd` serves:
 
-- **`/healthz`** (or `http.health_path`) — `200` when the last completed check
-  reported healthy, `503` otherwise. Always answers; reflects the most recent
-  tick's verdict.
-- **`/metrics`** (or `http.metrics_path`) — Prometheus-format metrics:
-  per-resource readiness gauge, check latency, tick timestamp.
+- **`/healthz`** (or `http.health_path`) — `text/plain` body `ok` or `unhealthy`.
+  `200` when the **raw** last completed tick reported every resource Ready;
+  `503` before the first completed tick or when any resource is not ready /
+  errored. Reflects the last completed pass immediately (never waits on an
+  in-flight check). Healthz does **not** use post-hysteresis firing state —
+  hysteresis gates notifications only.
+- **`/metrics`** (or `http.metrics_path`) — Prometheus text exposition
+  (`kwd_resource_ready{kind,namespace,name}`, `kwd_check_latency_seconds`,
+  `kwd_last_tick_timestamp_seconds`, `kwd_healthy`). Always `200`; before the
+  first tick gauges are zeroed (no per-resource samples yet).
+
+Bind failure exits non-zero before the daemon loop starts. SIGINT/SIGTERM
+cancels the shared process context: the HTTP server shuts down briefly, then
+Daemon returns nil → process exit `0`. Prefer binding to `127.0.0.1` — the
+surface is unauthenticated.
 
 The HTTP surface has no effect in single-pass shape.
 

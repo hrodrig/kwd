@@ -3,11 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hrodrig/kwd/internal/config"
+	"github.com/hrodrig/kwd/internal/exitcode"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -231,7 +234,7 @@ func TestConfirmFlagsUnsetLeaveYAML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"confirm-alert", "confirm-ok", "repeat-while-firing"} {
+	for _, name := range []string{"listen", "confirm-alert", "confirm-ok", "repeat-while-firing"} {
 		if checkCmd.Flags().Changed(name) {
 			t.Fatalf("unset %s must not be Changed", name)
 		}
@@ -239,8 +242,40 @@ func TestConfirmFlagsUnsetLeaveYAML(t *testing.T) {
 			t.Fatalf("check must register --%s (D-20)", name)
 		}
 	}
-	if checkCmd.Flags().Lookup("listen") != nil {
-		t.Fatal("--listen must not be registered until plan 03-02")
+}
+
+func TestListenFlagChangedOverridesConfig(t *testing.T) {
+	root := NewRootCmd()
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		listenFlag = ""
+		if f := checkCmd.Flags().Lookup("listen"); f != nil {
+			f.Changed = false
+		}
+	})
+	if err := checkCmd.Flags().Set("listen", "127.0.0.1:9090"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{HTTP: config.HTTPConfig{Listen: ":8080"}}
+	if checkCmd.Flags().Changed("listen") {
+		cfg.HTTP.Listen = listenFlag
+	}
+	if cfg.HTTP.Listen != "127.0.0.1:9090" {
+		t.Fatalf("Changed override: got %q", cfg.HTTP.Listen)
+	}
+}
+
+func TestListenFlagUnsetLeavesYAML(t *testing.T) {
+	root := NewRootCmd()
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkCmd.Flags().Changed("listen") {
+		t.Fatal("unset listen must not be Changed")
 	}
 }
 
@@ -443,5 +478,114 @@ func TestDaemonHealthyBaselineNoTable(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("healthy baseline must not print table: %q", out.String())
+	}
+}
+
+func TestHTTPListenFailFast(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	addr := ln.Addr().String()
+
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  60,
+		Timeout:   2 * time.Second,
+		HTTP:      config.HTTPConfig{Listen: addr, HealthPath: "/healthz", MetricsPath: "/metrics"},
+	}
+	var out, errOut bytes.Buffer
+	err = checkWithClient(context.Background(), &out, &errOut, cfg, cs)
+	if err == nil {
+		t.Fatal("occupied listen must fail before Daemon")
+	}
+	if exitcode.Of(err) != exitcode.Failure {
+		t.Fatalf("exit code = %d, want Failure", exitcode.Of(err))
+	}
+	if !strings.Contains(err.Error(), "http listen") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestHTTPSinglePassIgnoresListen(t *testing.T) {
+	// Occupied port would fail if single-pass tried to Serve (D-17).
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  0,
+		HTTP:      config.HTTPConfig{Listen: ln.Addr().String()},
+	}
+	var out, errOut bytes.Buffer
+	if err := checkWithClient(context.Background(), &out, &errOut, cfg, cs); err != nil {
+		t.Fatalf("single-pass must ignore http.listen: %v", err)
+	}
+}
+
+func TestDaemonHTTPHealthzAfterTick(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close() // free for kwd bind
+
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  60,
+		Timeout:   2 * time.Second,
+		HTTP:      config.HTTPConfig{Listen: addr, HealthPath: "/healthz", MetricsPath: "/metrics"},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errOut bytes.Buffer
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- checkWithClient(ctx, &out, &errOut, cfg, cs)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var lastStatus int
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://" + addr + "/healthz")
+		if err == nil {
+			lastStatus = resp.StatusCode
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("daemon cancel: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not exit")
+	}
+	if lastStatus != http.StatusOK {
+		t.Fatalf("healthz after tick = %d, want 200", lastStatus)
 	}
 }

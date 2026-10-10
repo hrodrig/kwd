@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -40,10 +41,13 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	// YAML → KWD_* (Viper) → flag. Apply only when Changed so unset defaults
-	// do not clobber YAML/env (D-01 interval; D-20 confirm/repeat).
-	// --listen lands in plan 03-02; http.health_path/metrics_path stay YAML-only (D-21).
+	// do not clobber YAML/env (D-01 interval; D-20 listen/confirm/repeat).
+	// http.health_path / metrics_path stay YAML-only (D-21).
 	if cmd.Flags().Changed("interval") {
 		cfg.Interval = intervalFlag
+	}
+	if cmd.Flags().Changed("listen") {
+		cfg.HTTP.Listen = listenFlag
 	}
 	if cmd.Flags().Changed("confirm-alert") {
 		cfg.ConfirmAlert = confirmAlertFlag
@@ -75,7 +79,17 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 	eng := engine.New(cfg, cs, check.NewRegistry())
 
 	if cfg.Interval > 0 {
-		return eng.Daemon(ctx, engine.DaemonOptions{
+		var httpSrv *http.Server
+		// D-17/D-18: HTTP only when listen non-empty; fail-fast bind before Daemon.
+		if cfg.HTTP.Listen != "" {
+			ln, err := engine.ListenTCP(cfg.HTTP.Listen)
+			if err != nil {
+				return exitcode.New(exitcode.Failure, fmt.Errorf("http listen: %w", err))
+			}
+			httpSrv = engine.NewHTTPServer(eng.Snapshot(), cfg.HTTP.HealthPath, cfg.HTTP.MetricsPath)
+			engine.ServeHTTP(ln, httpSrv)
+		}
+		err := eng.Daemon(ctx, engine.DaemonOptions{
 			OnTick: func(verdicts []check.Verdict, action engine.NotifyAction) {
 				writeTickLog(errOut, cfg, verdicts, action)
 				// Table on Alert / Resolve / Repeat (D-15); not on NotifyNone.
@@ -99,6 +113,9 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 				return nil
 			},
 		})
+		// D-19: shared NotifyContext cancel → short Shutdown; Daemon nil → exit 0.
+		_ = engine.ShutdownHTTP(httpSrv)
+		return err
 	}
 
 	verdicts := eng.Once(ctx)

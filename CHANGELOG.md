@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Daemon loop when `interval > 0` (or `kwd check --interval N` / `KWD_INTERVAL`): serial check → wait → check, notify on overall ready ↔ not-ready transitions (alert and resolution), readiness table on transition only, SIGINT/SIGTERM → exit 0. No `--daemon` flag.
+- Daemon HTTP surface when `http.listen` is set (`KWD_HTTP_LISTEN` / `kwd check --listen`): `/healthz` (raw last-tick `ok`/`unhealthy`, 503 before first tick) and `/metrics` (hand-rolled Prometheus `kwd_*` gauges). Fail-fast bind; shared signal cancel + short Shutdown.
+- Notify hysteresis: `confirm_alert` / `confirm_ok` (per-resource streaks → overall firing) and optional `repeat_while_firing`. CLI: `--confirm-alert`, `--confirm-ok`, `--repeat-while-firing` (`Flags().Changed` only).
 
 ### Changed
 

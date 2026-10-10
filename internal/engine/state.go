@@ -168,3 +168,14 @@ func (s *TickSnapshot) TickUnix() int64 {
 	defer s.mu.RUnlock()
 	return s.tickUnix
 }
+
+// Load returns a consistent copy of the last completed tick under one RLock
+// (healthz/metrics must not tear across fields; D-02).
+func (s *TickSnapshot) Load() (haveCompleted bool, verdicts []check.Verdict, latency time.Duration, tickUnix int64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.haveCompleted {
+		return false, nil, 0, 0
+	}
+	return true, append([]check.Verdict(nil), s.verdicts...), s.latency, s.tickUnix
+}
