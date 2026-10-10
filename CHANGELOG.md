@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- README and SPECIFICATIONS: early-development (pre-1.0) disclaimer — not for sole production readiness/alerting until v1.0.0; use at your own risk (MIT AS IS).
+
 [↑ Back to top](#top)
 
 ## [0.2.1] - 2026-10-10
