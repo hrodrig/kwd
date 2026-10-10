@@ -145,7 +145,7 @@ when either **`.TH`** version drifts from **`VERSION`**.
 - `internal/cli/` — Cobra commands and flags.
 - `configs/` — sample configuration, embedded by `configs/sample_config.go`.
 - `contrib/man/man1/` — man pages; `contrib/scripts/` — the dependency pin guard.
-- `docs/` — empty placeholder for the vhs demo (`demo.tape` → `demo.gif`), not written yet.
+- `docs/` — README hero (`kwd-hero-oss.jpg`); VHS `demo.tape` → `demo.gif` still planned (see `docs/README.md`).
 - Not present yet: `contrib/freebsd/`, `contrib/openbsd/`, `contrib/deb/`, the
   krew manifest, and `testing/` (kind e2e smoke).
 
