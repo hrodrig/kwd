@@ -30,7 +30,9 @@ Dog — a Kubernetes workload readiness watchdog). See
 - **This repo (`kwd`):** Go CLI, config, checks, tests, CI,
   **`make release-check`**, binaries, `.deb`/`.rpm`, **`ghcr.io/hrodrig/kwd`**,
   cosign signatures and SBOMs — same split as **kzero** / **groot** / **pgwd**.
-  A Homebrew cask and the BSD ports tree are not published yet (planned).
+  FreeBSD/OpenBSD **port skeletons** live under **`contrib/freebsd/`** and
+  **`contrib/openbsd/`** (not yet in the official ports trees). Homebrew tap
+  not published yet.
 - **Not here:** cron/systemd scheduling, operator runbooks, reference hook
   scripts, in-cluster manifests → **[hrodrig/kwd-selfhosted]** (operator
   assets). Do not add `run/` or deployment trees to this repository.
@@ -83,10 +85,10 @@ BSD uses `gmake` via the `Makefile` stub.
   gocyclo + grype), `check-docker`, `docker-build`, `docker-scan`.
 - **Release:** `release-check` (gate: VERSION semver + lint + test +
   cover-check + security + docker-scan), `release: release-check` (GoReleaser,
-  `main` only).
-- **Not implemented yet:** `fmt`, `fmt-check`, `test-kind`, `port-freebsd-sync`,
-  `port-openbsd-sync`, `dist-freebsd`, `dist-openbsd` — add them together with
-  the BSD ports tree and the kind e2e suite.
+  `main` only), `port-freebsd-sync`, `port-openbsd-sync`, `dist-freebsd`,
+  `dist-openbsd`.
+- **Not implemented yet:** `fmt`, `fmt-check`, `test-kind` — add with the kind
+  e2e suite.
 
 ## Git flow
 
@@ -117,7 +119,7 @@ BSD uses `gmake` via the `Makefile` stub.
 | 2 | **`README.md`** | Static **Version** badge `version-<semver>`; update shipped tables if present |
 | 3 | **`CHANGELOG.md`** | Move `[Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD`; update compare links |
 | 4 | **`contrib/man/man1/*.1`** | `.TH` date + `kwd v<VERSION>` on **both** pages; document new flags — `make check-man-version` enforces the version |
-| 5 | **BSD ports** | Not applicable yet (no ports tree); add `make port-*-sync` with it |
+| 5 | **BSD ports** | `make port-freebsd-sync` + `make port-openbsd-sync` (keeps `contrib/freebsd/` and `contrib/openbsd/port/` in lockstep with **`VERSION`**) |
 | 6 | **Gate** | `make release-check` — run only after the user asks |
 | 7 | **Ship** | Open PR `develop` → `main`, merge on GitHub, annotated tag, push tag — **only after the user explicitly approves**. Then sync `main` → `develop` (via PR). |
 
@@ -145,9 +147,9 @@ when either **`.TH`** version drifts from **`VERSION`**.
 - `internal/cli/` — Cobra commands and flags.
 - `configs/` — sample configuration, embedded by `configs/sample_config.go`.
 - `contrib/man/man1/` — man pages; `contrib/scripts/` — the dependency pin guard.
+- `contrib/freebsd/` — FreeBSD port skeleton; `contrib/openbsd/port/` — OpenBSD port skeleton.
 - `docs/` — README hero (`kwd-hero-oss.jpg`); VHS `demo.tape` → `demo.gif` (re-record on VERSION bump; see `docs/README.md`).
-- Not present yet: `contrib/freebsd/`, `contrib/openbsd/`, `contrib/deb/`, the
-  krew manifest, and `testing/` (kind e2e smoke).
+- Not present yet: `contrib/deb/`, the krew manifest, and `testing/` (kind e2e smoke).
 
 ## Other instructions
 

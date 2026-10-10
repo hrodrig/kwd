@@ -302,8 +302,9 @@ This installs the binary to `$GOBIN` (default `$HOME/go/bin`). Ensure `$GOBIN` i
 | **Debian/Ubuntu** | `wget -q -O /tmp/kwd.deb https://github.com/hrodrig/kwd/releases/download/v0.1.0/kwd_v0.1.0_linux_amd64.deb && sudo dpkg -i /tmp/kwd.deb` |
 | **Fedora / RHEL / AlmaLinux / Rocky** | `sudo dnf install https://github.com/hrodrig/kwd/releases/download/v0.1.0/kwd_v0.1.0_linux_amd64.rpm` |
 | **Alpine / tarball** | `wget -qO- https://github.com/hrodrig/kwd/releases/download/v0.1.0/kwd_v0.1.0_linux_amd64.tar.gz \| tar -xzf - -C /usr/local/bin` |
-| **FreeBSD / OpenBSD** | Ports tree **not published yet** — use the release tarball or `go install` until `contrib/freebsd/` / `contrib/openbsd/` land |
-| **Homebrew** | Cask **not published yet** — use `go install` or a release binary |
+| **FreeBSD** | Port skeleton in [`contrib/freebsd/`](contrib/freebsd/) — not yet in the official ports tree. Local: `make port-freebsd-sync && make dist-freebsd`, then install from that port. Or use a [release](https://github.com/hrodrig/kwd/releases) FreeBSD tarball / `go install`. |
+| **OpenBSD** | Port skeleton in [`contrib/openbsd/port/`](contrib/openbsd/port/) — submit to `ports@openbsd.org` when ready. Local: `make port-openbsd-sync && make dist-openbsd`. Or use a release OpenBSD tarball / `go install`. |
+| **Homebrew** | Tap **not published yet** — use `go install` or a release binary |
 
 **kubectl plugin:** `make install-kubectl-plugin` installs a `kubectl-kwd` shim so `kubectl kwd …` works; a krew manifest is planned.
 
@@ -368,7 +369,7 @@ Use in-cluster config, or mount a kubeconfig to check a remote cluster.
 | Slice | Scope |
 |-------|-------|
 | **Unreleased → v0.2.0** | Daemon (`interval > 0`), hysteresis / `repeat_while_firing`, HTTP `/healthz` + `kwd_*` `/metrics`, SPEC-full notify payloads |
-| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew / Homebrew / BSD ports |
+| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew / Homebrew; submit FreeBSD/OpenBSD ports upstream |
 
 Each slice is additive on the same check path. Behavior details: [SPECIFICATIONS.md](SPECIFICATIONS.md). Product notes: [docs/README.md](docs/README.md).
 
