@@ -2,7 +2,7 @@
 #   make build && export PATH="$(pwd)/bin:$PATH" && bash -c "vhs docs/demo.tape"
 # Or: make install && bash -c "vhs docs/demo.tape"
 # Use bash -c (not bare `vhs` from zsh) so the recorder does not inherit zsh/Oh My Zsh prompts.
-# Re-record after EVERY VERSION bump — `kwd version` must show the release (e.g. v0.2.0).
+# Re-record after EVERY VERSION bump — `kwd version` must show the release (e.g. v0.2.1).
 
 Output docs/demo.gif
 
