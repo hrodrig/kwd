@@ -26,7 +26,7 @@ setting selects the runtime shape, exactly like `pgwd`:
 | `interval` | Runtime shape |
 |-----------|----------------|
 | `0` (default) | Single-pass. Check everything once, emit the verdict, exit `0` or `1`. |
-| `> 0` (seconds) | Daemon loop. Check on every tick, forever. Notify on state transitions. Serve HTTP if configured. |
+| `> 0` (seconds) | Daemon loop. Serial check → wait(`interval`) → check (never concurrent ticks). Notify and print the readiness table on overall state transitions only. Serve HTTP if configured (Phase 3). Graceful SIGINT/SIGTERM → exit `0`. |
 
 This is the core design rule: **the check logic is identical in both shapes.**
 Only the loop and the reporting surface differ. No two code paths, no
@@ -37,7 +37,7 @@ dispatched `--daemon` flag.
 `kwd` is designed for phased delivery without breaking this contract:
 
 1. **Plan 1 — single-pass.** `interval: 0`, readiness checks, `exit 0/1`.
-2. **Plan 2 — loop.** `interval > 0`, same check inside a ticker.
+2. **Plan 2 — loop.** `interval > 0`, same check in a serial daemon loop.
 3. **Plan 3 — observability.** HTTP `/healthz` + `/metrics`, hysteresis
    (`confirm_alert` / `confirm_ok`), `repeat_while_firing`.
 
@@ -145,12 +145,13 @@ Exit codes:
 
 | Code | Meaning |
 |------|---------|
-| `0` | `check` single-pass: every configured resource is ready. `analyze`/`target`/`doctor`/`notify test` succeeded. |
-| `1` | at least one resource is not ready, or a check errored. |
+| `0` | `check` single-pass: every configured resource is ready. Daemon shape: graceful SIGINT/SIGTERM shutdown. `analyze`/`target`/`doctor`/`notify test` succeeded. |
+| `1` | Single-pass: at least one resource is not ready, or a check errored. (Daemon does not map last-tick health to exit `1`.) |
 | `2` | `doctor` one or more checks failed (config / API / RBAC / refs). |
 
 `--show-sample-config`, `--version`, `analyze`, `target`, and `doctor` exit `0`
-on success. The daemon shape (`interval > 0`) does not exit.
+on success. The daemon shape (`interval > 0`) runs until signaled; it does not
+use the process exit code as the health channel.
 
 ## 5. Configuration schema
 
@@ -373,9 +374,13 @@ fails closed with an error.
 A notification is emitted when `--force-notification` is set **or** on a state
 transition (unhealthy → or → healthy, per hysteresis). Each payload carries a
 `color`/level (green healthy, red unhealthy), a title, a text body listing each
-resource and its status, and a UTC timestamp. When `repeat_while_firing` is
-`true`, the unhealthy notification is re-sent every `interval` while the bad
-state persists.
+resource and its status, a UTC timestamp, plus resolved `client.id` and cluster
+metadata. The Slack Incoming Webhook sink encodes those fields into the plain
+JSON `text` field (`{"text":...}`); richer attachment JSON is optional polish.
+In the daemon shape, the readiness table is printed on the same transition
+moments (not every tick). When `repeat_while_firing` is `true`, the unhealthy
+notification is re-sent every `interval` while the bad state persists
+(Phase 3).
 
 ## 9. HTTP surface (daemon shape)
 

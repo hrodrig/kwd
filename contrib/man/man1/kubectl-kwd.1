@@ -18,6 +18,18 @@ prefix so kubectl plugin discovery resolves it as
 It is the same binary and accepts the same commands and flags; see
 .BR kwd (1)
 for the full manual.
+.PP
+Flag parity with
+.BR kwd (1)
+includes
+.B check \-\-interval
+(seconds;
+.B 0
+= single-pass; YAML →
+.B KWD_INTERVAL
+→ flag). There is no
+.B \-\-daemon
+flag.
 .SH SEE ALSO
 .BR kwd (1),
 .BR kubectl (1)

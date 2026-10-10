@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hrodrig/kwd/internal/check"
 	"github.com/hrodrig/kwd/internal/config"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -97,20 +96,6 @@ func TestCheckWithClientFailClosedMissingWebhook(t *testing.T) {
 	_ = checkWithClient(context.Background(), &out, &errOut, cfg, cs)
 	if !bytes.Contains(errOut.Bytes(), []byte("fail-closed")) {
 		t.Fatalf("expected fail-closed notify error, got: %q", errOut.String())
-	}
-}
-
-func TestBuildAlertText(t *testing.T) {
-	verdicts := []check.Verdict{
-		{Ref: check.Ref{Kind: "deployment", Namespace: "default", Name: "app"}, Status: check.NotReady},
-		{Ref: check.Ref{Kind: "statefulset", Namespace: "default", Name: "db"}, Status: check.Ready},
-	}
-	s := buildAlertText(verdicts)
-	if s == "" {
-		t.Fatal("alert text empty")
-	}
-	if !bytes.Contains([]byte(s), []byte("deployment.default/app")) {
-		t.Fatalf("expected ref in alert text: %q", s)
 	}
 }
 
@@ -248,12 +233,112 @@ func TestCheckWithClientDaemonCancelNil(t *testing.T) {
 	}
 }
 
-func TestBuildResolveText(t *testing.T) {
-	verdicts := []check.Verdict{
-		{Ref: check.Ref{Kind: "deployment", Namespace: "default", Name: "app"}, Status: check.Ready},
+func TestDaemonTableOnlyOnTransition(t *testing.T) {
+	// Stay not-ready across two ticks: table once (first-tick alert), not every tick.
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  1,
+		Timeout:   2 * time.Second,
+		LogFormat: "text",
 	}
-	s := buildResolveText(verdicts)
-	if !strings.Contains(s, "all resources ready") {
-		t.Fatalf("resolve text: %q", s)
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errOut bytes.Buffer
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- checkWithClient(ctx, &out, &errOut, cfg, cs)
+	}()
+	// Allow first pass + serial gap + second stable pass.
+	time.Sleep(1500 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("daemon cancel must return nil, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not exit")
+	}
+	tableHits := strings.Count(out.String(), "NOT-READY")
+	if tableHits != 1 {
+		t.Fatalf("table on transition only: NOT-READY count=%d out=%q", tableHits, out.String())
+	}
+	if !strings.Contains(errOut.String(), "kwd: tick") {
+		t.Fatalf("expected tick log on errOut: %q", errOut.String())
+	}
+}
+
+func TestDaemonDryRunSuppressesNotify(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  60,
+		Timeout:   2 * time.Second,
+		DryRun:    true,
+		Notifications: &config.Notifications{
+			Sinks: []config.Sink{{Type: "slack"}},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errOut bytes.Buffer
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- checkWithClient(ctx, &out, &errOut, cfg, cs)
+	}()
+	time.Sleep(80 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("daemon cancel must return nil, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not exit")
+	}
+	if bytes.Contains(errOut.Bytes(), []byte("notify:")) {
+		t.Fatalf("dry-run must not FanOut: %q", errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("NOT-READY")) {
+		t.Fatalf("dry-run still prints table on transition: %q", out.String())
+	}
+}
+
+func TestDaemonHealthyBaselineNoTable(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Interval:  60,
+		Timeout:   2 * time.Second,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errOut bytes.Buffer
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- checkWithClient(ctx, &out, &errOut, cfg, cs)
+	}()
+	time.Sleep(80 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("healthy baseline must not print table: %q", out.String())
 	}
 }

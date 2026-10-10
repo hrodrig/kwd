@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/hrodrig/kwd/internal/check"
 	"github.com/hrodrig/kwd/internal/cluster"
@@ -17,6 +18,10 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 )
+
+// notifySendTimeout bounds an in-flight transition FanOut after parent cancel
+// (RESEARCH Pitfall 3 / A2: WithoutCancel + short timeout).
+const notifySendTimeout = 10 * time.Second
 
 // checkCommand is the primary verb (also the default for bare `kwd`).
 var checkCommand = &cobra.Command{
@@ -54,8 +59,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 // checkWithClient runs a single-pass check (Interval == 0) or Engine.Daemon
 // (Interval > 0) against cs. Single-pass: table + notify-on-not-ready + exit
-// 0/1. Daemon: transition notify only; returns nil on cancel (D-07 — do not
-// map last-tick health to Failure).
+// 0/1. Daemon: table+notify on transition only; returns nil on cancel (D-07).
 func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Config, cs kubernetes.Interface) error {
 	clientID := identity.Resolve(cfg.Client.ID)
 	eng := engine.New(cfg, cs, check.NewRegistry())
@@ -63,16 +67,22 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 	if cfg.Interval > 0 {
 		return eng.Daemon(ctx, engine.DaemonOptions{
 			OnTick: func(verdicts []check.Verdict, transitioned bool) {
-				// Full per-tick log polish is plan 02 (D-03); keep quiet here.
-				_ = verdicts
-				_ = transitioned
+				writeTickLog(errOut, cfg, verdicts, transitioned)
+				if transitioned {
+					report.WriteTable(out, verdicts)
+				}
 			},
 			OnTransition: func(ctx context.Context, alert bool, verdicts []check.Verdict) error {
-				report.WriteTable(out, verdicts)
 				if cfg.DryRun {
 					return nil
 				}
-				if err := sendTransitionNotification(ctx, cfg, clientID, alert, verdicts); err != nil {
+				// Finish in-flight notify after signal; never start if parent done.
+				if ctx.Err() != nil {
+					return nil
+				}
+				notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifySendTimeout)
+				defer cancel()
+				if err := sendTransitionNotification(notifyCtx, cfg, clientID, alert, verdicts); err != nil {
 					_, _ = fmt.Fprintln(errOut, "notify:", err)
 				}
 				return nil
@@ -96,6 +106,19 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 	return nil
 }
 
+// writeTickLog emits a minimal per-pass line to errOut (D-03). Full table
+// stays on stdout and only on transition.
+func writeTickLog(w io.Writer, cfg *config.Config, verdicts []check.Verdict, transitioned bool) {
+	ok := !report.AnyNotReady(verdicts)
+	if cfg != nil && cfg.LogFormat == "json" {
+		_, _ = fmt.Fprintf(w, `{"msg":"tick","ok":%t,"transitioned":%t,"resources":%d}`+"\n",
+			ok, transitioned, len(verdicts))
+		return
+	}
+	_, _ = fmt.Fprintf(w, "kwd: tick ok=%t transitioned=%t resources=%d\n",
+		ok, transitioned, len(verdicts))
+}
+
 // sendNotification builds sinks from config + env and sends a single alert for
 // the not-ready verdicts. Fail-closed: a missing *_env secret is an error.
 func sendNotification(ctx context.Context, cfg *config.Config, clientID string, verdicts []check.Verdict) error {
@@ -103,7 +126,7 @@ func sendNotification(ctx context.Context, cfg *config.Config, clientID string, 
 }
 
 // sendTransitionNotification fans out an alert (alert=true) or resolution
-// (alert=false). SPEC-full Message fields land in plan 02; text is minimal here.
+// (alert=false) with SPEC-full Message fields (D-05); one notify per flip (D-06).
 func sendTransitionNotification(ctx context.Context, cfg *config.Config, clientID string, alert bool, verdicts []check.Verdict) error {
 	if cfg.Notifications == nil || len(cfg.Notifications.Sinks) == 0 {
 		return nil // notifications disabled
@@ -121,38 +144,6 @@ func sendTransitionNotification(ctx context.Context, cfg *config.Config, clientI
 		senders = append(senders, &notify.Slack{WebhookURL: url})
 	}
 
-	text := buildAlertText(verdicts)
-	if !alert {
-		text = buildResolveText(verdicts)
-	}
-	msg := notify.Message{
-		ClientID: clientID,
-		Cluster:  cfg.Cluster.Name,
-		Text:     text,
-	}
+	msg := notify.BuildTransitionMessage(clientID, cfg.Cluster.Name, alert, verdicts, time.Now().UTC())
 	return notify.FanOut(ctx, senders, msg)
-}
-
-func buildAlertText(verdicts []check.Verdict) string {
-	notReady := 0
-	for _, v := range verdicts {
-		if v.Status != check.Ready {
-			notReady++
-		}
-	}
-	s := fmt.Sprintf("kwd: %d resource(s) not ready", notReady)
-	for _, v := range verdicts {
-		if v.Status != check.Ready {
-			s += fmt.Sprintf("\n- %s: %s", v.Ref.String(), v.Status)
-		}
-	}
-	return s
-}
-
-func buildResolveText(verdicts []check.Verdict) string {
-	s := "kwd: all resources ready"
-	for _, v := range verdicts {
-		s += fmt.Sprintf("\n- %s: %s", v.Ref.String(), v.Status)
-	}
-	return s
 }

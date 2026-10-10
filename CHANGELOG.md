@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
+## [Unreleased]
+
+### Added
+
+- Daemon loop when `interval > 0` (or `kwd check --interval N` / `KWD_INTERVAL`): serial check → wait → check, notify on overall ready ↔ not-ready transitions (alert and resolution), readiness table on transition only, SIGINT/SIGTERM → exit 0. No `--daemon` flag.
+
+### Changed
+
+- Notification payloads carry SPEC-full fields (level/color, title, per-resource body, UTC timestamp, `client.id`, cluster) composed into Slack Incoming Webhook plain `{"text":...}`.
+
+[↑ Back to top](#top)
+
 ## [0.1.0] - 2026-10-09
 
 ### Added

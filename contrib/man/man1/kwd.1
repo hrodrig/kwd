@@ -23,13 +23,24 @@ directly (no
 .BR kubectl
 binary) and selects its target cluster by kubeconfig context.
 .PP
-In v0.1.0, kwd checks
+kwd checks
 .B deployment
 and
 .B statefulset
-kinds, runs once per invocation (
-.IR "interval: 0" ),
-and can send a Slack notification when a resource is not ready.
+kinds. With
+.IR "interval: 0"
+(the default) it runs once and exits
+.BR 0 / 1 .
+With
+.I interval > 0
+it runs a serial daemon loop (check, wait, check), prints the readiness
+table and notifies only on overall state transitions, and exits
+.B 0
+on SIGINT/SIGTERM. There is no
+.B \-\-daemon
+flag; runtime shape is solely
+.IR interval .
+Slack notifications use a fail-closed webhook env var when configured.
 .SH COMMANDS
 .TP
 .B check
@@ -67,6 +78,19 @@ Config file path. Default when omitted:
 .BR \-\-print\-sample\-config
 Write the sample config to stdout and exit (same as
 .IR configs/kwd.sample.yml ).
+.TP
+.BR \-\-interval " \fIseconds\fR"
+Override
+.I interval
+for
+.B check
+only (seconds;
+.B 0
+= single-pass). Precedence: YAML →
+.B KWD_INTERVAL
+→ this flag (flag applies only when set). There is no
+.B \-\-daemon
+flag.
 .SH CONFIGURATION
 Configuration is a YAML file with these top-level blocks:
 .IR cluster ,
@@ -87,6 +111,7 @@ Environment variables with prefix
 override YAML when loaded (e.g.
 .BR KWD_CLIENT_ID ,
 .BR KWD_KUBE_CONTEXT ,
+.BR KWD_INTERVAL ,
 .BR KWD_DRY_RUN ).
 The Slack webhook is read from
 .BR KWD_SLACK_WEBHOOK
@@ -94,10 +119,13 @@ The Slack webhook is read from
 .SH EXIT STATUS
 .TP
 .B 0
-Success \- all declared resources ready.
+Success \- all declared resources ready (single-pass), or graceful daemon
+shutdown (SIGINT/SIGTERM when
+.IR "interval > 0" ).
 .TP
 .B 1
-One or more resources not-ready or errored.
+One or more resources not-ready or errored (single-pass only; the daemon
+shape does not map last-tick health to the exit code).
 .TP
 .B 2
 Reserved for

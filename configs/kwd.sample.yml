@@ -21,7 +21,10 @@ resources:
   - deployment.default/my-app
   - statefulset.default/my-db
 
-# interval: check interval in seconds. 0 = run once (single-pass, exit 0/1).
+# interval: check interval in seconds.
+#   0  = single-pass (exit 0/1). Override: KWD_INTERVAL or `kwd check --interval N`.
+#   >0 = daemon loop (serial gap between passes); notify + table on transitions only.
+# There is no --daemon flag — runtime shape is solely interval.
 interval: 0
 
 # retry: per-check retry backoff (initial_backoff must be <= max_backoff).
