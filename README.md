@@ -15,6 +15,17 @@
 
 **Repo:** [github.com/hrodrig/kwd](https://github.com/hrodrig/kwd) · **Releases:** [GitHub Releases](https://github.com/hrodrig/kwd/releases) · **Spec:** [SPECIFICATIONS.md](SPECIFICATIONS.md) · **Changelog:** [CHANGELOG.md](CHANGELOG.md) · **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
+<a id="early-development-disclaimer"></a>
+
+> **Early development (pre-1.0).** kwd is under active development. Config
+> schema, CLI flags, readiness kinds, sinks, and exit semantics may change
+> without a stability guarantee until **v1.0.0**. **Do not use it as a sole
+> production readiness or alerting gate** before then. Evaluate in non-critical
+> environments first. **Use at your own risk.** The software is provided under
+> the [MIT License](./LICENSE) **“AS IS”**, without warranty of any kind; the
+> authors and copyright holders are not liable for damages arising from its use
+> (see [LICENSE](./LICENSE)).
+
 **The problem:** A rollout finishes, and *someone* has to go look — is the Deployment actually ready? Did the StatefulSet come up, or is a pod crash-looping? Most "health checks" are either ad-hoc `kubectl get` squinting at columns, or a full Prometheus/Grafana stack you don't want to stand up just to answer *"is it up?"*.
 
 **How kwd solves it:** a tiny, single-binary CLI (**client-go**, **no `kubectl` binary required**) checks the **readiness** of the workloads you declare. With `interval: 0` it is a **single pass** (exit `0`/`1` for cron/CI). With `interval > 0` it is a **daemon** loop: same check path, notify on transitions (with optional hysteresis), optional HTTP `/healthz` + Prometheus `/metrics`. Point it at a context, list your refs, and let cron, a supervisor, or a probe scrape decide what happens next.
@@ -23,10 +34,10 @@ Declarative, out-of-band, and easy to script — the "is this cluster healthy *r
 
 ![kwd — Kubernetes workload readiness watchdog](docs/kwd-hero-oss.jpg)
 
-**Operator deployment** (cron, systemd, in-cluster): planned in **[kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted)** — this repo ships the CLI binary, packages, and `ghcr.io/hrodrig/kwd` only (same split as [kzero](https://github.com/hrodrig/kzero) / [pgwd](https://github.com/hrodrig/pgwd)).
+**Operator deployment** (cron, systemd, in-cluster): **[kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted)** — this repo ships the CLI binary, packages, and `ghcr.io/hrodrig/kwd` only (same split as [kzero](https://github.com/hrodrig/kzero) / [pgwd](https://github.com/hrodrig/pgwd)).
 
 **Related tools (same maintainer):**
-- **[kwd](https://github.com/hrodrig/kwd)** — Kubernetes workload readiness watchdog ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/kwd); deploy: [kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted) when published)
+- **[kwd](https://github.com/hrodrig/kwd)** — Kubernetes workload readiness watchdog ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/kwd); deploy: [kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted))
 - **[kzero](https://github.com/hrodrig/kzero)** — bastion-first declarative workload reset ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/kzero); deploy: [kzero-selfhosted](https://github.com/hrodrig/kzero-selfhosted))
 - **[groot](https://github.com/hrodrig/groot)** — Kubernetes diagnostics archive ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/groot); deploy: [groot-selfhosted](https://github.com/hrodrig/groot-selfhosted))
 - **[pgwd](https://github.com/hrodrig/pgwd)** — PostgreSQL connection watchdog ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/pgwd); deploy: [pgwd-selfhosted](https://github.com/hrodrig/pgwd-selfhosted))
@@ -43,6 +54,7 @@ Regenerate from the repo root: **[docs/README.md — Terminal demo](docs/README.
 
 ## Table of contents
 
+- [Early development disclaimer](#early-development-disclaimer)
 - [Terminal demo](#terminal-demo)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
@@ -391,5 +403,9 @@ Thanks for using kwd. Happy watching.
 ## License
 
 [MIT License](LICENSE). See [LICENSE](LICENSE) for the full text.
+
+Until **v1.0.0**, treat kwd as early development: no production-stability
+promise; use at your own risk. The MIT text is the legal baseline (no warranty,
+limitation of liability).
 
 [↑ Back to top](#top)

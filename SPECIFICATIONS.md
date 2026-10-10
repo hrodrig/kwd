@@ -1,5 +1,10 @@
 # kwd v0 Specifications
 
+**Status:** this document is the **v0 target contract**. Shipped behavior may
+lag (see the root [README](README.md) roadmap and version badge). Until
+**v1.0.0**, kwd is early development: no production-stability guarantee; use at
+your own risk (MIT License — no warranty).
+
 `kwd` is a Go CLI that watches Kubernetes workloads and reports cluster
 health. It runs in one of two ways selected by a single knob: a **single-pass
 check** (script-friendly `exit 0/1`) or a **daemon loop** (continuous
