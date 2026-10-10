@@ -31,8 +31,9 @@ Dog — a Kubernetes workload readiness watchdog). See
   **`make release-check`**, binaries, `.deb`/`.rpm`, **`ghcr.io/hrodrig/kwd`**,
   cosign signatures and SBOMs — same split as **kzero** / **groot** / **pgwd**.
   FreeBSD/OpenBSD **port skeletons** live under **`contrib/freebsd/`** and
-  **`contrib/openbsd/`** (not yet in the official ports trees). Homebrew tap
-  not published yet.
+  **`contrib/openbsd/`** (not yet in the official ports trees). Homebrew tap:
+  **[hrodrig/homebrew-kwd](https://github.com/hrodrig/homebrew-kwd)** (`homebrew_casks`
+  in **`.goreleaser.yaml`**; needs **`HOMEBREW_TAP_TOKEN`** on release).
 - **Not here:** cron/systemd scheduling, operator runbooks, reference hook
   scripts, in-cluster manifests → **[hrodrig/kwd-selfhosted]** (operator
   assets). Do not add `run/` or deployment trees to this repository.

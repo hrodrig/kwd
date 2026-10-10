@@ -2,7 +2,7 @@
 
 <a id="top"></a>
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/hrodrig/kwd/releases)
+[![Version](https://img.shields.io/badge/version-0.2.1-blue)](https://github.com/hrodrig/kwd/releases)
 [![GitHub release](https://img.shields.io/github/v/release/hrodrig/kwd)](https://github.com/hrodrig/kwd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Go 1.27.2](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://go.dev/dl/)
@@ -15,6 +15,17 @@
 
 **Repo:** [github.com/hrodrig/kwd](https://github.com/hrodrig/kwd) · **Releases:** [GitHub Releases](https://github.com/hrodrig/kwd/releases) · **Spec:** [SPECIFICATIONS.md](SPECIFICATIONS.md) · **Changelog:** [CHANGELOG.md](CHANGELOG.md) · **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
+<a id="early-development-disclaimer"></a>
+
+> **Early development (pre-1.0).** kwd is under active development. Config
+> schema, CLI flags, readiness kinds, sinks, and exit semantics may change
+> without a stability guarantee until **v1.0.0**. **Do not use it as a sole
+> production readiness or alerting gate** before then. Evaluate in non-critical
+> environments first. **Use at your own risk.** The software is provided under
+> the [MIT License](./LICENSE) **“AS IS”**, without warranty of any kind; the
+> authors and copyright holders are not liable for damages arising from its use
+> (see [LICENSE](./LICENSE)).
+
 **The problem:** A rollout finishes, and *someone* has to go look — is the Deployment actually ready? Did the StatefulSet come up, or is a pod crash-looping? Most "health checks" are either ad-hoc `kubectl get` squinting at columns, or a full Prometheus/Grafana stack you don't want to stand up just to answer *"is it up?"*.
 
 **How kwd solves it:** a tiny, single-binary CLI (**client-go**, **no `kubectl` binary required**) checks the **readiness** of the workloads you declare. With `interval: 0` it is a **single pass** (exit `0`/`1` for cron/CI). With `interval > 0` it is a **daemon** loop: same check path, notify on transitions (with optional hysteresis), optional HTTP `/healthz` + Prometheus `/metrics`. Point it at a context, list your refs, and let cron, a supervisor, or a probe scrape decide what happens next.
@@ -23,10 +34,10 @@ Declarative, out-of-band, and easy to script — the "is this cluster healthy *r
 
 ![kwd — Kubernetes workload readiness watchdog](docs/kwd-hero-oss.jpg)
 
-**Operator deployment** (cron, systemd, in-cluster): planned in **[kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted)** — this repo ships the CLI binary, packages, and `ghcr.io/hrodrig/kwd` only (same split as [kzero](https://github.com/hrodrig/kzero) / [pgwd](https://github.com/hrodrig/pgwd)).
+**Operator deployment** (cron, systemd, in-cluster): **[kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted)** — this repo ships the CLI binary, packages, and `ghcr.io/hrodrig/kwd` only (same split as [kzero](https://github.com/hrodrig/kzero) / [pgwd](https://github.com/hrodrig/pgwd)).
 
 **Related tools (same maintainer):**
-- **[kwd](https://github.com/hrodrig/kwd)** — Kubernetes workload readiness watchdog ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/kwd); deploy: [kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted) when published)
+- **[kwd](https://github.com/hrodrig/kwd)** — Kubernetes workload readiness watchdog ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/kwd); deploy: [kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted))
 - **[kzero](https://github.com/hrodrig/kzero)** — bastion-first declarative workload reset ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/kzero); deploy: [kzero-selfhosted](https://github.com/hrodrig/kzero-selfhosted))
 - **[groot](https://github.com/hrodrig/groot)** — Kubernetes diagnostics archive ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/groot); deploy: [groot-selfhosted](https://github.com/hrodrig/groot-selfhosted))
 - **[pgwd](https://github.com/hrodrig/pgwd)** — PostgreSQL connection watchdog ([live traffic](https://gghstats.hermesrodriguez.com/hrodrig/pgwd); deploy: [pgwd-selfhosted](https://github.com/hrodrig/pgwd-selfhosted))
@@ -43,6 +54,7 @@ Regenerate from the repo root: **[docs/README.md — Terminal demo](docs/README.
 
 ## Table of contents
 
+- [Early development disclaimer](#early-development-disclaimer)
 - [Terminal demo](#terminal-demo)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
@@ -81,7 +93,7 @@ config.yml ─► resolve client identity ─► load Kubernetes client ─► c
 
 `kwd` loads a declarative YAML config, resolves which cluster to talk to (`kube.context`), builds a typed **client-go** clientset (no `kubectl` subprocess), and checks every declared resource against its **readiness** rules. The **same** check path runs in single-pass and daemon shapes. The report is printed to stdout on transitions (daemon) or once (single-pass); exit codes apply to single-pass only — the daemon exits `0` on SIGINT/SIGTERM and exposes health over HTTP when configured.
 
-**Shipped (v0.2.0):** `deployment` / `statefulset`, single-pass and daemon (`interval > 0`), hysteresis / `repeat_while_firing`, HTTP `/healthz` + `kwd_*` `/metrics`, Slack sink, `analyze` / `target`, FreeBSD/OpenBSD port skeletons. Later: more kinds, sinks, `doctor`, packaging polish — [Roadmap](#roadmap).
+**Shipped (v0.2.1):** `deployment` / `statefulset`, single-pass and daemon (`interval > 0`), hysteresis / `repeat_while_firing`, HTTP `/healthz` + `kwd_*` `/metrics`, Slack sink, `analyze` / `target`, FreeBSD/OpenBSD port skeletons, Homebrew tap (`brew install hrodrig/kwd/kwd`). Later: more kinds, sinks, `doctor`, packaging polish — [Roadmap](#roadmap).
 
 [↑ Back to top](#top)
 
@@ -293,18 +305,18 @@ go install github.com/hrodrig/kwd@latest
 
 This installs the binary to `$GOBIN` (default `$HOME/go/bin`). Ensure `$GOBIN` is on your `PATH`.
 
-**Pre-built binaries:** [Releases](https://github.com/hrodrig/kwd/releases) provide binaries (tar.gz, zip), `.deb`, and `.rpm` packages for Linux, macOS, and Windows (amd64 and arm64). Replace `v0.2.0` and `amd64` with your desired version and arch.
+**Pre-built binaries:** [Releases](https://github.com/hrodrig/kwd/releases) provide binaries (tar.gz, zip), `.deb`, and `.rpm` packages for Linux, macOS, and Windows (amd64 and arm64). Replace `v0.2.1` and `amd64` with your desired version and arch.
 
 | Platform | Command |
 |----------|---------|
-| **Debian/Ubuntu** | `wget -q -O /tmp/kwd.deb https://github.com/hrodrig/kwd/releases/download/v0.2.0/kwd_v0.2.0_linux_amd64.deb && sudo dpkg -i /tmp/kwd.deb` |
-| **Fedora / RHEL / AlmaLinux / Rocky** | `sudo dnf install https://github.com/hrodrig/kwd/releases/download/v0.2.0/kwd_v0.2.0_linux_amd64.rpm` |
-| **Alpine / tarball** | `wget -qO- https://github.com/hrodrig/kwd/releases/download/v0.2.0/kwd_v0.2.0_linux_amd64.tar.gz \| tar -xzf - -C /usr/local/bin` |
+| **Debian/Ubuntu** | `wget -q -O /tmp/kwd.deb https://github.com/hrodrig/kwd/releases/download/v0.2.1/kwd_v0.2.1_linux_amd64.deb && sudo dpkg -i /tmp/kwd.deb` |
+| **Fedora / RHEL / AlmaLinux / Rocky** | `sudo dnf install https://github.com/hrodrig/kwd/releases/download/v0.2.1/kwd_v0.2.1_linux_amd64.rpm` |
+| **Alpine / tarball** | `wget -qO- https://github.com/hrodrig/kwd/releases/download/v0.2.1/kwd_v0.2.1_linux_amd64.tar.gz \| tar -xzf - -C /usr/local/bin` |
 | **FreeBSD** | Port skeleton in [`contrib/freebsd/`](contrib/freebsd/) — not yet in the official ports tree. Local: `make port-freebsd-sync && make dist-freebsd`, then install from that port. Or use a [release](https://github.com/hrodrig/kwd/releases) FreeBSD tarball / `go install`. |
 | **OpenBSD** | Port skeleton in [`contrib/openbsd/port/`](contrib/openbsd/port/) — submit to `ports@openbsd.org` when ready. Local: `make port-openbsd-sync && make dist-openbsd`. Or use a release OpenBSD tarball / `go install`. |
-| **Homebrew** | Tap **not published yet** — use `go install` or a release binary |
+| **Homebrew** | `brew install hrodrig/kwd/kwd` ([homebrew-kwd](https://github.com/hrodrig/homebrew-kwd); cask updated by GoReleaser on each tag) |
 
-**kubectl plugin:** `make install-kubectl-plugin` installs a `kubectl-kwd` shim so `kubectl kwd …` works; a krew manifest is planned.
+**kubectl plugin:** the Homebrew cask and release tarballs ship **`kubectl-kwd`** so `kubectl kwd …` works; `make install-kubectl-plugin` installs a local shim. A krew manifest is planned.
 
 [↑ Back to top](#top)
 
@@ -362,11 +374,11 @@ Use in-cluster config, or mount a kubeconfig to check a remote cluster.
 
 ## Roadmap
 
-**Shipped:** **v0.2.0** — single-pass + daemon `check`, hysteresis, HTTP `/healthz` + `/metrics`, Slack sink, `analyze` / `target`, `client.id` + `cluster` identity, BSD port skeletons.
+**Shipped:** **v0.2.1** — single-pass + daemon `check`, hysteresis, HTTP `/healthz` + `/metrics`, Slack sink, `analyze` / `target`, `client.id` + `cluster` identity, BSD port skeletons, Homebrew tap.
 
 | Slice | Scope |
 |-------|-------|
-| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew / Homebrew; submit FreeBSD/OpenBSD ports upstream |
+| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew; submit FreeBSD/OpenBSD ports upstream |
 
 Each slice is additive on the same check path. Behavior details: [SPECIFICATIONS.md](SPECIFICATIONS.md). Product notes: [docs/README.md](docs/README.md).
 
@@ -391,5 +403,9 @@ Thanks for using kwd. Happy watching.
 ## License
 
 [MIT License](LICENSE). See [LICENSE](LICENSE) for the full text.
+
+Until **v1.0.0**, treat kwd as early development: no production-stability
+promise; use at your own risk. The MIT text is the legal baseline (no warranty,
+limitation of liability).
 
 [↑ Back to top](#top)
