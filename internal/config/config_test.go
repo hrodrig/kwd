@@ -48,6 +48,65 @@ interval: 0
 	if cfg.Retry.Attempts != 3 {
 		t.Fatalf("retry.attempts default = %d", cfg.Retry.Attempts)
 	}
+	if cfg.ConfirmAlert != 1 || cfg.ConfirmOk != 1 {
+		t.Fatalf("confirm defaults = %d/%d, want 1/1", cfg.ConfirmAlert, cfg.ConfirmOk)
+	}
+	if cfg.RepeatWhileFiring {
+		t.Fatal("repeat_while_firing default must be false")
+	}
+	if cfg.HTTP.HealthPath != "/healthz" || cfg.HTTP.MetricsPath != "/metrics" {
+		t.Fatalf("http path defaults = %q / %q", cfg.HTTP.HealthPath, cfg.HTTP.MetricsPath)
+	}
+	if cfg.HTTP.Listen != "" {
+		t.Fatalf("http.listen default must be empty, got %q", cfg.HTTP.Listen)
+	}
+}
+
+func TestLoadConfirmAndHTTPFields(t *testing.T) {
+	p := writeTempConfig(t, `
+resources:
+  - deployment.default/app
+confirm_alert: 3
+confirm_ok: 2
+repeat_while_firing: true
+http:
+  listen: ":9090"
+  health_path: /readyz
+  metrics_path: /prom
+`)
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.ConfirmAlert != 3 || cfg.ConfirmOk != 2 || !cfg.RepeatWhileFiring {
+		t.Fatalf("confirm/repeat = %d/%d/%v", cfg.ConfirmAlert, cfg.ConfirmOk, cfg.RepeatWhileFiring)
+	}
+	if cfg.HTTP.Listen != ":9090" || cfg.HTTP.HealthPath != "/readyz" || cfg.HTTP.MetricsPath != "/prom" {
+		t.Fatalf("http = %+v", cfg.HTTP)
+	}
+}
+
+func TestLoadRejectsConfirmAlertBelowOne(t *testing.T) {
+	// applyDefaults turns 0 → 1; negative values hit validate.
+	p := writeTempConfig(t, `
+resources:
+  - deployment.default/app
+confirm_alert: -1
+`)
+	if _, err := Load(p); err == nil {
+		t.Fatal("expected error for confirm_alert < 1")
+	}
+}
+
+func TestLoadRejectsConfirmOkBelowOne(t *testing.T) {
+	p := writeTempConfig(t, `
+resources:
+  - deployment.default/app
+confirm_ok: -2
+`)
+	if _, err := Load(p); err == nil {
+		t.Fatal("expected error for confirm_ok < 1")
+	}
 }
 
 func TestLoadRejectsMissingResources(t *testing.T) {

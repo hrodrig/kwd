@@ -33,6 +33,16 @@ type Message struct {
 // BuildTransitionMessage builds an alert (alert=true) or resolution payload
 // with SPEC-full fields and composed Text for Slack.
 func BuildTransitionMessage(clientID, cluster string, alert bool, verdicts []check.Verdict, ts time.Time) Message {
+	return buildTransitionMessage(clientID, cluster, alert, false, verdicts, ts)
+}
+
+// BuildRepeatMessage builds an ongoing unhealthy alert (D-16: ALERT (ongoing)).
+// Resolve titles are unchanged — use BuildTransitionMessage(..., false, ...).
+func BuildRepeatMessage(clientID, cluster string, verdicts []check.Verdict, ts time.Time) Message {
+	return buildTransitionMessage(clientID, cluster, true, true, verdicts, ts)
+}
+
+func buildTransitionMessage(clientID, cluster string, alert, ongoing bool, verdicts []check.Verdict, ts time.Time) Message {
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	} else {
@@ -47,7 +57,7 @@ func BuildTransitionMessage(clientID, cluster string, alert bool, verdicts []che
 	if alert {
 		m.Level = LevelAlert
 		m.Color = ColorAlert
-		m.Title = alertTitle(verdicts)
+		m.Title = alertTitle(verdicts, ongoing)
 	} else {
 		m.Level = LevelOK
 		m.Color = ColorOK
@@ -72,12 +82,15 @@ func ComposeText(m Message) string {
 	return b.String()
 }
 
-func alertTitle(verdicts []check.Verdict) string {
+func alertTitle(verdicts []check.Verdict, ongoing bool) string {
 	notReady := 0
 	for _, v := range verdicts {
 		if v.Status != check.Ready {
 			notReady++
 		}
+	}
+	if ongoing {
+		return fmt.Sprintf("kwd ALERT (ongoing): %d resource(s) not ready", notReady)
 	}
 	return fmt.Sprintf("kwd: %d resource(s) not ready", notReady)
 }

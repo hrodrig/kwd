@@ -57,11 +57,32 @@ func TestMessageResolutionFields(t *testing.T) {
 	if !strings.Contains(strings.ToLower(m.Title), "ready") {
 		t.Fatalf("Title = %q, want resolution title", m.Title)
 	}
+	if strings.Contains(m.Title, "ongoing") {
+		t.Fatalf("resolve title must not mark ongoing: %q", m.Title)
+	}
 	if !strings.Contains(m.Body, "deployment.default/app") {
 		t.Fatalf("Body = %q", m.Body)
 	}
 	if m.Level == LevelAlert {
 		t.Fatal("resolution must not use alert level")
+	}
+}
+
+func TestMessageRepeatOngoingTitle(t *testing.T) {
+	ts := time.Date(2026, 10, 10, 12, 10, 0, 0, time.UTC)
+	verdicts := []check.Verdict{
+		{Ref: check.Ref{Kind: "deployment", Namespace: "default", Name: "app"}, Status: check.NotReady},
+	}
+	m := BuildRepeatMessage("cid", "cl", verdicts, ts)
+	if m.Level != LevelAlert {
+		t.Fatalf("Level = %q, want alert", m.Level)
+	}
+	if !strings.Contains(m.Title, "ALERT (ongoing)") {
+		t.Fatalf("Title = %q, want ALERT (ongoing) marker (D-16)", m.Title)
+	}
+	alert := BuildTransitionMessage("cid", "cl", true, verdicts, ts)
+	if strings.Contains(alert.Title, "ongoing") {
+		t.Fatalf("initial alert must not use ongoing title: %q", alert.Title)
 	}
 }
 

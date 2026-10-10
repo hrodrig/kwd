@@ -37,17 +37,21 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		Cluster:       raw.Cluster,
-		Kube:          raw.Kube,
-		Client:        raw.Client,
-		Resources:     raw.Resources,
-		Interval:      raw.Interval,
-		Retry:         raw.Retry,
-		Timeout:       raw.Timeout,
-		Color:         raw.Color,
-		LogFormat:     raw.LogFormat,
-		DryRun:        raw.DryRun,
-		Notifications: raw.Notifications,
+		Cluster:           raw.Cluster,
+		Kube:              raw.Kube,
+		Client:            raw.Client,
+		Resources:         raw.Resources,
+		Interval:          raw.Interval,
+		Retry:             raw.Retry,
+		Timeout:           raw.Timeout,
+		Color:             raw.Color,
+		LogFormat:         raw.LogFormat,
+		DryRun:            raw.DryRun,
+		Notifications:     raw.Notifications,
+		HTTP:              raw.HTTP,
+		ConfirmAlert:      raw.ConfirmAlert,
+		ConfirmOk:         raw.ConfirmOk,
+		RepeatWhileFiring: raw.RepeatWhileFiring,
 	}
 
 	if err := cfg.applyDefaults(); err != nil {
@@ -62,21 +66,26 @@ func Load(path string) (*Config, error) {
 
 // rawConfig mirrors Config but uses mapstructure tags for viper decoding.
 type rawConfig struct {
-	Cluster       Cluster        `mapstructure:"cluster"`
-	Kube          Kube           `mapstructure:"kube"`
-	Client        Client         `mapstructure:"client"`
-	Resources     []string       `mapstructure:"resources"`
-	Interval      int            `mapstructure:"interval"`
-	Retry         Retry          `mapstructure:"retry"`
-	Timeout       time.Duration  `mapstructure:"timeout"`
-	Color         string         `mapstructure:"color"`
-	LogFormat     string         `mapstructure:"log_format"`
-	DryRun        bool           `mapstructure:"dry_run"`
-	Notifications *Notifications `mapstructure:"notifications"`
+	Cluster           Cluster        `mapstructure:"cluster"`
+	Kube              Kube           `mapstructure:"kube"`
+	Client            Client         `mapstructure:"client"`
+	Resources         []string       `mapstructure:"resources"`
+	Interval          int            `mapstructure:"interval"`
+	Retry             Retry          `mapstructure:"retry"`
+	Timeout           time.Duration  `mapstructure:"timeout"`
+	Color             string         `mapstructure:"color"`
+	LogFormat         string         `mapstructure:"log_format"`
+	DryRun            bool           `mapstructure:"dry_run"`
+	Notifications     *Notifications `mapstructure:"notifications"`
+	HTTP              HTTPConfig     `mapstructure:"http"`
+	ConfirmAlert      int            `mapstructure:"confirm_alert"`
+	ConfirmOk         int            `mapstructure:"confirm_ok"`
+	RepeatWhileFiring bool           `mapstructure:"repeat_while_firing"`
 }
 
 // bindConfigEnv links nested YAML keys to KWD_* variables so Unmarshal picks
-// up overrides.
+// up overrides. Phase 3: KWD_HTTP_LISTEN, KWD_CONFIRM_ALERT, KWD_CONFIRM_OK,
+// KWD_REPEAT_WHILE_FIRING (D-20). http.health_path / metrics_path stay YAML-only.
 func bindConfigEnv(v *viper.Viper) {
 	for _, key := range []string{
 		"cluster.name",
@@ -86,6 +95,10 @@ func bindConfigEnv(v *viper.Viper) {
 		"client.id",
 		"interval",
 		"notifications",
+		"http.listen",
+		"confirm_alert",
+		"confirm_ok",
+		"repeat_while_firing",
 	} {
 		_ = v.BindEnv(key)
 	}
@@ -113,6 +126,22 @@ func (c *Config) applyDefaults() error {
 	if c.Timeout == 0 {
 		c.Timeout = 10 * time.Second
 	}
+	// SPEC §5 / D-09…D-13: confirm defaults 1; repeat off; HTTP paths when empty.
+	if c.ConfirmAlert == 0 {
+		c.ConfirmAlert = 1
+	}
+	if c.ConfirmOk == 0 {
+		c.ConfirmOk = 1
+	}
+	c.HTTP.HealthPath = strings.TrimSpace(c.HTTP.HealthPath)
+	if c.HTTP.HealthPath == "" {
+		c.HTTP.HealthPath = "/healthz"
+	}
+	c.HTTP.MetricsPath = strings.TrimSpace(c.HTTP.MetricsPath)
+	if c.HTTP.MetricsPath == "" {
+		c.HTTP.MetricsPath = "/metrics"
+	}
+	c.HTTP.Listen = strings.TrimSpace(c.HTTP.Listen)
 	return nil
 }
 
@@ -132,6 +161,12 @@ func (c *Config) validate() error {
 	}
 	if c.Interval < 0 {
 		return fmt.Errorf("interval must be >= 0 (got %d)", c.Interval)
+	}
+	if c.ConfirmAlert < 1 {
+		return fmt.Errorf("confirm_alert must be >= 1 (got %d)", c.ConfirmAlert)
+	}
+	if c.ConfirmOk < 1 {
+		return fmt.Errorf("confirm_ok must be >= 1 (got %d)", c.ConfirmOk)
 	}
 	switch c.Color {
 	case "auto", "always", "never":

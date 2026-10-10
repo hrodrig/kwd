@@ -185,6 +185,65 @@ func TestIntervalFlagUnsetLeavesYAML(t *testing.T) {
 	}
 }
 
+func TestConfirmFlagsChangedOverridesConfig(t *testing.T) {
+	root := NewRootCmd()
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		confirmAlertFlag = 1
+		confirmOkFlag = 1
+		repeatWhileFiringFlag = false
+		for _, name := range []string{"confirm-alert", "confirm-ok", "repeat-while-firing"} {
+			if f := checkCmd.Flags().Lookup(name); f != nil {
+				f.Changed = false
+			}
+		}
+	})
+	if err := checkCmd.Flags().Set("confirm-alert", "5"); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCmd.Flags().Set("confirm-ok", "4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCmd.Flags().Set("repeat-while-firing", "true"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{ConfirmAlert: 1, ConfirmOk: 1, RepeatWhileFiring: false}
+	if checkCmd.Flags().Changed("confirm-alert") {
+		cfg.ConfirmAlert = confirmAlertFlag
+	}
+	if checkCmd.Flags().Changed("confirm-ok") {
+		cfg.ConfirmOk = confirmOkFlag
+	}
+	if checkCmd.Flags().Changed("repeat-while-firing") {
+		cfg.RepeatWhileFiring = repeatWhileFiringFlag
+	}
+	if cfg.ConfirmAlert != 5 || cfg.ConfirmOk != 4 || !cfg.RepeatWhileFiring {
+		t.Fatalf("Changed overrides = %+v", cfg)
+	}
+}
+
+func TestConfirmFlagsUnsetLeaveYAML(t *testing.T) {
+	root := NewRootCmd()
+	checkCmd, _, err := root.Find([]string{"check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"confirm-alert", "confirm-ok", "repeat-while-firing"} {
+		if checkCmd.Flags().Changed(name) {
+			t.Fatalf("unset %s must not be Changed", name)
+		}
+		if checkCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("check must register --%s (D-20)", name)
+		}
+	}
+	if checkCmd.Flags().Lookup("listen") != nil {
+		t.Fatal("--listen must not be registered until plan 03-02")
+	}
+}
+
 func TestNoDaemonFlag(t *testing.T) {
 	root := NewRootCmd()
 	if root.Flags().Lookup("daemon") != nil || root.PersistentFlags().Lookup("daemon") != nil {
@@ -308,6 +367,50 @@ func TestDaemonDryRunSuppressesNotify(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("NOT-READY")) {
 		t.Fatalf("dry-run still prints table on transition: %q", out.String())
+	}
+}
+
+func TestDaemonRepeatDryRunPrintsTableMutesFanOut(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
+	})
+	cfg := &config.Config{
+		Resources:         []string{"deployment.default/app"},
+		Interval:          1,
+		Timeout:           2 * time.Second,
+		ConfirmAlert:      1,
+		ConfirmOk:         1,
+		RepeatWhileFiring: true,
+		DryRun:            true,
+		Notifications: &config.Notifications{
+			Sinks: []config.Sink{{Type: "slack"}},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errOut bytes.Buffer
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- checkWithClient(ctx, &out, &errOut, cfg, cs)
+	}()
+	// First Alert + at least one Repeat gap.
+	time.Sleep(2200 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("daemon cancel must return nil, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not exit")
+	}
+	if bytes.Contains(errOut.Bytes(), []byte("notify:")) {
+		t.Fatalf("dry-run must mute Alert/Repeat FanOut: %q", errOut.String())
+	}
+	tableHits := strings.Count(out.String(), "NOT-READY")
+	if tableHits < 2 {
+		t.Fatalf("table on Alert and Repeat: NOT-READY count=%d out=%q", tableHits, out.String())
 	}
 }
 

@@ -39,10 +39,20 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// D-01: YAML → KWD_INTERVAL (via Viper) → flag. Apply only when Changed
-	// so an unset --interval default of 0 does not force single-pass over YAML.
+	// YAML → KWD_* (Viper) → flag. Apply only when Changed so unset defaults
+	// do not clobber YAML/env (D-01 interval; D-20 confirm/repeat).
+	// --listen lands in plan 03-02; http.health_path/metrics_path stay YAML-only (D-21).
 	if cmd.Flags().Changed("interval") {
 		cfg.Interval = intervalFlag
+	}
+	if cmd.Flags().Changed("confirm-alert") {
+		cfg.ConfirmAlert = confirmAlertFlag
+	}
+	if cmd.Flags().Changed("confirm-ok") {
+		cfg.ConfirmOk = confirmOkFlag
+	}
+	if cmd.Flags().Changed("repeat-while-firing") {
+		cfg.RepeatWhileFiring = repeatWhileFiringFlag
 	}
 
 	restCfg, err := cluster.LoadRESTConfig("", cfg.Kube.Context)
@@ -59,20 +69,21 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 // checkWithClient runs a single-pass check (Interval == 0) or Engine.Daemon
 // (Interval > 0) against cs. Single-pass: table + notify-on-not-ready + exit
-// 0/1. Daemon: table+notify on transition only; returns nil on cancel (D-07).
+// 0/1. Daemon: table+notify on post-hysteresis Alert/Resolve/Repeat; nil on cancel.
 func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Config, cs kubernetes.Interface) error {
 	clientID := identity.Resolve(cfg.Client.ID)
 	eng := engine.New(cfg, cs, check.NewRegistry())
 
 	if cfg.Interval > 0 {
 		return eng.Daemon(ctx, engine.DaemonOptions{
-			OnTick: func(verdicts []check.Verdict, transitioned bool) {
-				writeTickLog(errOut, cfg, verdicts, transitioned)
-				if transitioned {
+			OnTick: func(verdicts []check.Verdict, action engine.NotifyAction) {
+				writeTickLog(errOut, cfg, verdicts, action)
+				// Table on Alert / Resolve / Repeat (D-15); not on NotifyNone.
+				if action != engine.NotifyNone {
 					report.WriteTable(out, verdicts)
 				}
 			},
-			OnTransition: func(ctx context.Context, alert bool, verdicts []check.Verdict) error {
+			OnNotify: func(ctx context.Context, action engine.NotifyAction, verdicts []check.Verdict) error {
 				if cfg.DryRun {
 					return nil
 				}
@@ -82,7 +93,7 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 				}
 				notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifySendTimeout)
 				defer cancel()
-				if err := sendTransitionNotification(notifyCtx, cfg, clientID, alert, verdicts); err != nil {
+				if err := sendNotifyAction(notifyCtx, cfg, clientID, action, verdicts); err != nil {
 					_, _ = fmt.Fprintln(errOut, "notify:", err)
 				}
 				return nil
@@ -107,16 +118,17 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 }
 
 // writeTickLog emits a minimal per-pass line to errOut (D-03). Full table
-// stays on stdout and only on transition.
-func writeTickLog(w io.Writer, cfg *config.Config, verdicts []check.Verdict, transitioned bool) {
+// stays on stdout and only on Alert/Resolve/Repeat.
+func writeTickLog(w io.Writer, cfg *config.Config, verdicts []check.Verdict, action engine.NotifyAction) {
 	ok := !report.AnyNotReady(verdicts)
+	transitioned := action != engine.NotifyNone
 	if cfg != nil && cfg.LogFormat == "json" {
-		_, _ = fmt.Fprintf(w, `{"msg":"tick","ok":%t,"transitioned":%t,"resources":%d}`+"\n",
-			ok, transitioned, len(verdicts))
+		_, _ = fmt.Fprintf(w, `{"msg":"tick","ok":%t,"transitioned":%t,"action":%q,"resources":%d}`+"\n",
+			ok, transitioned, action.String(), len(verdicts))
 		return
 	}
-	_, _ = fmt.Fprintf(w, "kwd: tick ok=%t transitioned=%t resources=%d\n",
-		ok, transitioned, len(verdicts))
+	_, _ = fmt.Fprintf(w, "kwd: tick ok=%t transitioned=%t action=%s resources=%d\n",
+		ok, transitioned, action.String(), len(verdicts))
 }
 
 // sendNotification builds sinks from config + env and sends a single alert for
@@ -125,25 +137,55 @@ func sendNotification(ctx context.Context, cfg *config.Config, clientID string, 
 	return sendTransitionNotification(ctx, cfg, clientID, true, verdicts)
 }
 
+// sendNotifyAction fans out Alert / Resolve / Repeat (D-14, D-16).
+func sendNotifyAction(ctx context.Context, cfg *config.Config, clientID string, action engine.NotifyAction, verdicts []check.Verdict) error {
+	switch action {
+	case engine.NotifyAlert:
+		return sendTransitionNotification(ctx, cfg, clientID, true, verdicts)
+	case engine.NotifyResolve:
+		return sendTransitionNotification(ctx, cfg, clientID, false, verdicts)
+	case engine.NotifyRepeat:
+		return sendRepeatNotification(ctx, cfg, clientID, verdicts)
+	default:
+		return nil
+	}
+}
+
 // sendTransitionNotification fans out an alert (alert=true) or resolution
 // (alert=false) with SPEC-full Message fields (D-05); one notify per flip (D-06).
 func sendTransitionNotification(ctx context.Context, cfg *config.Config, clientID string, alert bool, verdicts []check.Verdict) error {
+	senders, err := buildSenders(cfg)
+	if err != nil || senders == nil {
+		return err
+	}
+	msg := notify.BuildTransitionMessage(clientID, cfg.Cluster.Name, alert, verdicts, time.Now().UTC())
+	return notify.FanOut(ctx, senders, msg)
+}
+
+func sendRepeatNotification(ctx context.Context, cfg *config.Config, clientID string, verdicts []check.Verdict) error {
+	senders, err := buildSenders(cfg)
+	if err != nil || senders == nil {
+		return err
+	}
+	msg := notify.BuildRepeatMessage(clientID, cfg.Cluster.Name, verdicts, time.Now().UTC())
+	return notify.FanOut(ctx, senders, msg)
+}
+
+func buildSenders(cfg *config.Config) ([]notify.Sender, error) {
 	if cfg.Notifications == nil || len(cfg.Notifications.Sinks) == 0 {
-		return nil // notifications disabled
+		return nil, nil // notifications disabled
 	}
 
 	var senders []notify.Sender
 	for _, s := range cfg.Notifications.Sinks {
 		if s.Type != notify.TypeSlack {
-			return fmt.Errorf("sink type %q not supported in v0.1", s.Type)
+			return nil, fmt.Errorf("sink type %q not supported in v0.1", s.Type)
 		}
 		url := os.Getenv(notify.SlackWebhookEnv)
 		if url == "" {
-			return fmt.Errorf("slack sink requires %s env var (fail-closed)", notify.SlackWebhookEnv)
+			return nil, fmt.Errorf("slack sink requires %s env var (fail-closed)", notify.SlackWebhookEnv)
 		}
 		senders = append(senders, &notify.Slack{WebhookURL: url})
 	}
-
-	msg := notify.BuildTransitionMessage(clientID, cfg.Cluster.Name, alert, verdicts, time.Now().UTC())
-	return notify.FanOut(ctx, senders, msg)
+	return senders, nil
 }

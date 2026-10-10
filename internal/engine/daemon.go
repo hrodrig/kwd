@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/hrodrig/kwd/internal/check"
-	"github.com/hrodrig/kwd/internal/report"
 )
 
 // DaemonEventType discriminates optional DaemonEvent payloads (test sync).
@@ -14,15 +13,18 @@ type DaemonEventType int
 const (
 	// EventPassCompleted fires after a completed (non-discarded) Once pass.
 	EventPassCompleted DaemonEventType = iota
-	// EventTransition fires when overall health flips (alert or resolution).
+	// EventTransition fires on NotifyAlert or NotifyResolve (overall flip).
 	EventTransition
+	// EventRepeat fires when NotifyRepeat is emitted (repeat_while_firing).
+	EventRepeat
 )
 
 // DaemonEvent is an optional signal for tests (kzero watchdog Events style).
 // Production leaves Events nil.
 type DaemonEvent struct {
 	Type     DaemonEventType
-	Alert    bool // true = unhealthy transition; only set for EventTransition
+	Alert    bool // true = unhealthy (Alert/Repeat); false = Resolve
+	Action   NotifyAction
 	Verdicts []check.Verdict
 }
 
@@ -30,20 +32,21 @@ type DaemonEvent struct {
 // nil Events skips emit; hooks may be nil.
 type DaemonOptions struct {
 	Clock Clock
-	// Events, when non-nil, receives non-blocking pass/transition signals
+	// Events, when non-nil, receives non-blocking pass/notify signals
 	// (sibling: kzero Config.Events). Useful for tests; production leaves nil.
 	Events chan<- DaemonEvent
-	// OnTick runs after every completed pass (transitioned may be false).
-	OnTick func(verdicts []check.Verdict, transitioned bool)
-	// OnTransition runs once per overall health flip. alert=true means
-	// entering unhealthy; alert=false means resolution to all-ready.
-	OnTransition func(ctx context.Context, alert bool, verdicts []check.Verdict) error
+	// OnTick runs after every completed pass (action may be NotifyNone).
+	OnTick func(verdicts []check.Verdict, action NotifyAction)
+	// OnNotify runs when action != NotifyNone (Alert / Resolve / Repeat).
+	OnNotify func(ctx context.Context, action NotifyAction, verdicts []check.Verdict) error
 }
 
-// Daemon runs Forever: Once → (hooks) → serial Clock.After(interval) → Once.
-// It returns nil when ctx is canceled (D-07: signal → exit 0 via nil error).
-// Cancelled mid-pass verdicts are discarded — no transition update, no notify.
+// Daemon runs Forever: Once → hysteresis Apply → (hooks) → serial
+// Clock.After(interval) → Once. It returns nil when ctx is canceled
+// (D-07: signal → exit 0 via nil error). Cancelled mid-pass verdicts are
+// discarded — no Apply, Store, or notify (Pitfall 5 / T-03-01).
 //
+// Hysteresis and TickSnapshot are owned here; HTTP listen is plan 03-02.
 // D-04: never concurrent Once; never wall-cadence ticker for the gap.
 func (e *Engine) Daemon(ctx context.Context, opts DaemonOptions) error {
 	clk := opts.Clock
@@ -57,56 +60,44 @@ func (e *Engine) Daemon(ctx context.Context, opts DaemonOptions) error {
 		timeout = 10 * time.Second
 	}
 
-	var (
-		havePrev bool
-		prevOK   bool
-	)
+	hyst := NewHysteresis(e.cfg.ConfirmAlert, e.cfg.ConfirmOk, e.cfg.RepeatWhileFiring)
 
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
 
+		passStart := clk.Now()
 		passCtx, cancel := context.WithTimeout(ctx, timeout)
 		verdicts := e.Once(passCtx)
 		cancel()
+		latency := clk.Now().Sub(passStart)
 
-		// Parent canceled mid-pass (or during Once): discard — never a
-		// false transition from errored checkers under a dead context (D-07).
+		// Parent canceled mid-pass (or during Once): discard — never poison
+		// streaks / snapshot from errored checkers under a dead context.
 		if ctx.Err() != nil {
 			return nil
 		}
 
-		ok := !report.AnyNotReady(verdicts)
-		transitioned := false
-		alert := false
+		e.snapshot.Store(verdicts, latency, passStart.Unix())
+		action := hyst.Apply(verdicts)
 
-		if !havePrev {
-			havePrev = true
-			prevOK = ok
-			// First tick: alert if starting unhealthy (matches single-pass
-			// notify-on-not-ready / RESEARCH A1).
-			if !ok {
-				transitioned = true
-				alert = true
-			}
-		} else if ok != prevOK {
-			transitioned = true
-			alert = !ok
-			prevOK = ok
-		}
-
-		e.emit(opts.Events, DaemonEvent{Type: EventPassCompleted, Verdicts: verdicts})
-		if transitioned {
-			e.emit(opts.Events, DaemonEvent{Type: EventTransition, Alert: alert, Verdicts: verdicts})
+		e.emit(opts.Events, DaemonEvent{Type: EventPassCompleted, Action: action, Verdicts: verdicts})
+		switch action {
+		case NotifyAlert:
+			e.emit(opts.Events, DaemonEvent{Type: EventTransition, Alert: true, Action: action, Verdicts: verdicts})
+		case NotifyResolve:
+			e.emit(opts.Events, DaemonEvent{Type: EventTransition, Alert: false, Action: action, Verdicts: verdicts})
+		case NotifyRepeat:
+			e.emit(opts.Events, DaemonEvent{Type: EventRepeat, Alert: true, Action: action, Verdicts: verdicts})
 		}
 
 		if opts.OnTick != nil {
-			opts.OnTick(verdicts, transitioned)
+			opts.OnTick(verdicts, action)
 		}
-		if transitioned && opts.OnTransition != nil {
+		if action != NotifyNone && opts.OnNotify != nil {
 			// Log notify errors in the CLI hook; do not kill the daemon loop.
-			_ = opts.OnTransition(ctx, alert, verdicts)
+			_ = opts.OnNotify(ctx, action, verdicts)
 		}
 
 		// Serial gap after a completed pass (D-04). Interruptible on cancel.

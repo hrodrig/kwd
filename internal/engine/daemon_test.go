@@ -58,7 +58,7 @@ func waitEvent(t *testing.T, events <-chan DaemonEvent, want DaemonEventType, ti
 	select {
 	case ev := <-events:
 		if ev.Type != want {
-			t.Fatalf("expected event %v, got %v", want, ev.Type)
+			t.Fatalf("expected event %v, got %v (action=%v)", want, ev.Type, ev.Action)
 		}
 		return ev
 	case <-time.After(timeout):
@@ -73,9 +73,11 @@ func TestDaemonMultiTickSameOncePath(t *testing.T) {
 		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
 	})
 	cfg := &config.Config{
-		Resources: []string{"deployment.default/app"},
-		Interval:  1,
-		Timeout:   5 * time.Second,
+		Resources:    []string{"deployment.default/app"},
+		Interval:     1,
+		Timeout:      5 * time.Second,
+		ConfirmAlert: 1,
+		ConfirmOk:    1,
 	}
 	clk := newStepClock()
 	events := make(chan DaemonEvent, 8)
@@ -94,6 +96,9 @@ func TestDaemonMultiTickSameOncePath(t *testing.T) {
 	}
 	if ev.Verdicts[0].Status != check.Ready {
 		t.Fatalf("expected ready, got %s", ev.Verdicts[0].Status)
+	}
+	if !eng.Snapshot().HaveCompleted() {
+		t.Fatal("snapshot must Store after completed tick")
 	}
 
 	clk.FireAfter()
@@ -120,17 +125,19 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 	}
 	cs := fake.NewSimpleClientset(dep)
 	cfg := &config.Config{
-		Resources: []string{"deployment.default/app"},
-		Interval:  1,
-		Timeout:   5 * time.Second,
+		Resources:    []string{"deployment.default/app"},
+		Interval:     1,
+		Timeout:      5 * time.Second,
+		ConfirmAlert: 1,
+		ConfirmOk:    1,
 	}
 	clk := newStepClock()
 	events := make(chan DaemonEvent, 16)
 
 	var (
-		mu          sync.Mutex
-		transitions []bool // alert values
-		tickCount   int
+		mu      sync.Mutex
+		actions []NotifyAction
+		ticks   int
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -141,21 +148,21 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 		errCh <- eng.Daemon(ctx, DaemonOptions{
 			Clock:  clk,
 			Events: events,
-			OnTick: func(_ []check.Verdict, _ bool) {
+			OnTick: func(_ []check.Verdict, _ NotifyAction) {
 				mu.Lock()
-				tickCount++
+				ticks++
 				mu.Unlock()
 			},
-			OnTransition: func(_ context.Context, alert bool, _ []check.Verdict) error {
+			OnNotify: func(_ context.Context, action NotifyAction, _ []check.Verdict) error {
 				mu.Lock()
-				transitions = append(transitions, alert)
+				actions = append(actions, action)
 				mu.Unlock()
 				return nil
 			},
 		})
 	}()
 
-	// Tick 1: healthy baseline — no transition.
+	// Tick 1: healthy baseline — no notify.
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 
 	// Flip unhealthy.
@@ -166,8 +173,8 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 	clk.FireAfter()
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 	tr := waitEvent(t, events, EventTransition, 2*time.Second)
-	if !tr.Alert {
-		t.Fatal("expected alert=true on ready→unhealthy")
+	if !tr.Alert || tr.Action != NotifyAlert {
+		t.Fatalf("expected Alert transition, got alert=%v action=%v", tr.Alert, tr.Action)
 	}
 
 	// Stable unhealthy tick — no extra transition.
@@ -175,8 +182,8 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 	select {
 	case ev := <-events:
-		if ev.Type == EventTransition {
-			t.Fatal("stable unhealthy tick must not transition")
+		if ev.Type == EventTransition || ev.Type == EventRepeat {
+			t.Fatalf("stable unhealthy tick must not notify, got %v", ev.Type)
 		}
 	case <-time.After(50 * time.Millisecond):
 		// no transition event — good
@@ -190,8 +197,8 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 	clk.FireAfter()
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 	tr2 := waitEvent(t, events, EventTransition, 2*time.Second)
-	if tr2.Alert {
-		t.Fatal("expected alert=false on unhealthy→healthy")
+	if tr2.Alert || tr2.Action != NotifyResolve {
+		t.Fatalf("expected Resolve, got alert=%v action=%v", tr2.Alert, tr2.Action)
 	}
 
 	cancel()
@@ -199,14 +206,129 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(transitions) != 2 {
-		t.Fatalf("expected exactly 2 OnTransition calls, got %d (%v)", len(transitions), transitions)
+	if len(actions) != 2 {
+		t.Fatalf("expected exactly 2 OnNotify calls, got %d (%v)", len(actions), actions)
 	}
-	if !transitions[0] || transitions[1] {
-		t.Fatalf("expected alert then resolve, got %v", transitions)
+	if actions[0] != NotifyAlert || actions[1] != NotifyResolve {
+		t.Fatalf("expected Alert then Resolve, got %v", actions)
 	}
-	if tickCount < 3 {
-		t.Fatalf("expected at least 3 ticks, got %d", tickCount)
+	if ticks < 3 {
+		t.Fatalf("expected at least 3 ticks, got %d", ticks)
+	}
+}
+
+func TestDaemonConfirmAlert3DelaysNotify(t *testing.T) {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
+	}
+	cs := fake.NewSimpleClientset(dep)
+	cfg := &config.Config{
+		Resources:    []string{"deployment.default/app"},
+		Interval:     1,
+		Timeout:      5 * time.Second,
+		ConfirmAlert: 3,
+		ConfirmOk:    1,
+	}
+	clk := newStepClock()
+	events := make(chan DaemonEvent, 16)
+	var (
+		mu      sync.Mutex
+		actions []NotifyAction
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eng := New(cfg, cs, check.NewRegistry())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- eng.Daemon(ctx, DaemonOptions{
+			Clock:  clk,
+			Events: events,
+			OnNotify: func(_ context.Context, action NotifyAction, _ []check.Verdict) error {
+				mu.Lock()
+				actions = append(actions, action)
+				mu.Unlock()
+				return nil
+			},
+		})
+	}()
+
+	waitEvent(t, events, EventPassCompleted, 2*time.Second) // tick 1
+	clk.FireAfter()
+	waitEvent(t, events, EventPassCompleted, 2*time.Second) // tick 2
+	clk.FireAfter()
+	waitEvent(t, events, EventPassCompleted, 2*time.Second) // tick 3
+	tr := waitEvent(t, events, EventTransition, 2*time.Second)
+	if tr.Action != NotifyAlert {
+		t.Fatalf("tick3 action=%v, want Alert", tr.Action)
+	}
+
+	cancel()
+	<-errCh
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(actions) != 1 || actions[0] != NotifyAlert {
+		t.Fatalf("confirm_alert=3: expected single Alert, got %v", actions)
+	}
+}
+
+func TestDaemonRepeatWhileFiring(t *testing.T) {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
+	}
+	cs := fake.NewSimpleClientset(dep)
+	cfg := &config.Config{
+		Resources:         []string{"deployment.default/app"},
+		Interval:          1,
+		Timeout:           5 * time.Second,
+		ConfirmAlert:      1,
+		ConfirmOk:         1,
+		RepeatWhileFiring: true,
+	}
+	clk := newStepClock()
+	events := make(chan DaemonEvent, 16)
+	var (
+		mu      sync.Mutex
+		actions []NotifyAction
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eng := New(cfg, cs, check.NewRegistry())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- eng.Daemon(ctx, DaemonOptions{
+			Clock:  clk,
+			Events: events,
+			OnNotify: func(_ context.Context, action NotifyAction, _ []check.Verdict) error {
+				mu.Lock()
+				actions = append(actions, action)
+				mu.Unlock()
+				return nil
+			},
+		})
+	}()
+
+	waitEvent(t, events, EventPassCompleted, 2*time.Second)
+	waitEvent(t, events, EventTransition, 2*time.Second) // Alert
+
+	clk.FireAfter()
+	waitEvent(t, events, EventPassCompleted, 2*time.Second)
+	rep := waitEvent(t, events, EventRepeat, 2*time.Second)
+	if rep.Action != NotifyRepeat {
+		t.Fatalf("expected Repeat, got %v", rep.Action)
+	}
+
+	cancel()
+	<-errCh
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(actions) != 2 || actions[0] != NotifyAlert || actions[1] != NotifyRepeat {
+		t.Fatalf("expected Alert then Repeat, got %v", actions)
 	}
 }
 
@@ -216,9 +338,11 @@ func TestDaemonCancelReturnsNil(t *testing.T) {
 		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 0},
 	})
 	cfg := &config.Config{
-		Resources: []string{"deployment.default/app"},
-		Interval:  1,
-		Timeout:   5 * time.Second,
+		Resources:    []string{"deployment.default/app"},
+		Interval:     1,
+		Timeout:      5 * time.Second,
+		ConfirmAlert: 1,
+		ConfirmOk:    1,
 	}
 	clk := newStepClock()
 	events := make(chan DaemonEvent, 8)
@@ -232,7 +356,7 @@ func TestDaemonCancelReturnsNil(t *testing.T) {
 		errCh <- eng.Daemon(ctx, DaemonOptions{
 			Clock:  clk,
 			Events: events,
-			OnTransition: func(_ context.Context, _ bool, _ []check.Verdict) error {
+			OnNotify: func(_ context.Context, _ NotifyAction, _ []check.Verdict) error {
 				mu.Lock()
 				notifyCount++
 				mu.Unlock()
@@ -248,7 +372,7 @@ func TestDaemonCancelReturnsNil(t *testing.T) {
 	before := notifyCount
 	mu.Unlock()
 	if before != 1 {
-		t.Fatalf("expected 1 transition notify, got %d", before)
+		t.Fatalf("expected 1 notify, got %d", before)
 	}
 
 	cancel()
@@ -288,12 +412,14 @@ func TestDiscardCanceled(t *testing.T) {
 	}
 	cs := fake.NewSimpleClientset()
 	cfg := &config.Config{
-		Resources: []string{"deployment.default/app"},
-		Interval:  1,
-		Timeout:   5 * time.Second,
+		Resources:    []string{"deployment.default/app"},
+		Interval:     1,
+		Timeout:      5 * time.Second,
+		ConfirmAlert: 1,
+		ConfirmOk:    1,
 	}
 	clk := newStepClock()
-	var transitions int
+	var notifies int
 	var mu sync.Mutex
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -302,9 +428,9 @@ func TestDiscardCanceled(t *testing.T) {
 	go func() {
 		errCh <- eng.Daemon(ctx, DaemonOptions{
 			Clock: clk,
-			OnTransition: func(_ context.Context, _ bool, _ []check.Verdict) error {
+			OnNotify: func(_ context.Context, _ NotifyAction, _ []check.Verdict) error {
 				mu.Lock()
-				transitions++
+				notifies++
 				mu.Unlock()
 				return nil
 			},
@@ -329,7 +455,10 @@ func TestDiscardCanceled(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if transitions != 0 {
-		t.Fatalf("cancelled pass must not transition, got %d", transitions)
+	if notifies != 0 {
+		t.Fatalf("cancelled pass must not OnNotify, got %d", notifies)
+	}
+	if eng.Snapshot().HaveCompleted() {
+		t.Fatal("cancelled pass must not Store snapshot")
 	}
 }
