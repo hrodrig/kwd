@@ -118,6 +118,38 @@ func TestDaemonMultiTickSameOncePath(t *testing.T) {
 	}
 }
 
+func setDeploymentReady(t *testing.T, cs *fake.Clientset, dep *appsv1.Deployment, ready int32) {
+	t.Helper()
+	dep.Status.ReadyReplicas = ready
+	if _, err := cs.AppsV1().Deployments("default").UpdateStatus(context.Background(), dep, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("UpdateStatus ready=%d: %v", ready, err)
+	}
+}
+
+func expectNoTransitionOrRepeat(t *testing.T, events <-chan DaemonEvent) {
+	t.Helper()
+	select {
+	case ev := <-events:
+		if ev.Type == EventTransition || ev.Type == EventRepeat {
+			t.Fatalf("stable unhealthy tick must not notify, got %v", ev.Type)
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func assertAlertThenResolve(t *testing.T, actions []NotifyAction, ticks int) {
+	t.Helper()
+	if len(actions) != 2 {
+		t.Fatalf("expected exactly 2 OnNotify calls, got %d (%v)", len(actions), actions)
+	}
+	if actions[0] != NotifyAlert || actions[1] != NotifyResolve {
+		t.Fatalf("expected Alert then Resolve, got %v", actions)
+	}
+	if ticks < 3 {
+		t.Fatalf("expected at least 3 ticks, got %d", ticks)
+	}
+}
+
 func TestTransitionAlertAndResolve(t *testing.T) {
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
@@ -162,14 +194,9 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 		})
 	}()
 
-	// Tick 1: healthy baseline — no notify.
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 
-	// Flip unhealthy.
-	dep.Status.ReadyReplicas = 0
-	if _, err := cs.AppsV1().Deployments("default").UpdateStatus(context.Background(), dep, metav1.UpdateOptions{}); err != nil {
-		t.Fatalf("UpdateStatus: %v", err)
-	}
+	setDeploymentReady(t, cs, dep, 0)
 	clk.FireAfter()
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 	tr := waitEvent(t, events, EventTransition, 2*time.Second)
@@ -177,23 +204,11 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 		t.Fatalf("expected Alert transition, got alert=%v action=%v", tr.Alert, tr.Action)
 	}
 
-	// Stable unhealthy tick — no extra transition.
 	clk.FireAfter()
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
-	select {
-	case ev := <-events:
-		if ev.Type == EventTransition || ev.Type == EventRepeat {
-			t.Fatalf("stable unhealthy tick must not notify, got %v", ev.Type)
-		}
-	case <-time.After(50 * time.Millisecond):
-		// no transition event — good
-	}
+	expectNoTransitionOrRepeat(t, events)
 
-	// Flip back healthy → resolution.
-	dep.Status.ReadyReplicas = 1
-	if _, err := cs.AppsV1().Deployments("default").UpdateStatus(context.Background(), dep, metav1.UpdateOptions{}); err != nil {
-		t.Fatalf("UpdateStatus resolve: %v", err)
-	}
+	setDeploymentReady(t, cs, dep, 1)
 	clk.FireAfter()
 	waitEvent(t, events, EventPassCompleted, 2*time.Second)
 	tr2 := waitEvent(t, events, EventTransition, 2*time.Second)
@@ -206,15 +221,7 @@ func TestTransitionAlertAndResolve(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(actions) != 2 {
-		t.Fatalf("expected exactly 2 OnNotify calls, got %d (%v)", len(actions), actions)
-	}
-	if actions[0] != NotifyAlert || actions[1] != NotifyResolve {
-		t.Fatalf("expected Alert then Resolve, got %v", actions)
-	}
-	if ticks < 3 {
-		t.Fatalf("expected at least 3 ticks, got %d", ticks)
-	}
+	assertAlertThenResolve(t, actions, ticks)
 }
 
 func TestDaemonConfirmAlert3DelaysNotify(t *testing.T) {
