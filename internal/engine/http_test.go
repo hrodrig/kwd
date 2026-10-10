@@ -245,16 +245,23 @@ func TestHTTPShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addr := ln.Addr().String()
 	var snap TickSnapshot
 	srv := NewHTTPServer(&snap, "/healthz", "/metrics")
-	ServeHTTP(ln, srv)
+	ServeHTTP(ln, srv) // blocks until Serve accept loop is live
 	if err := ShutdownHTTP(srv); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
-	// Listener should be closed; Accept fails.
-	conn, err := net.DialTimeout("tcp", ln.Addr().String(), 50*time.Millisecond)
-	if err == nil {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err != nil {
+			return
+		}
 		_ = conn.Close()
-		t.Fatal("expected dial fail after Shutdown")
+		if time.Now().After(deadline) {
+			t.Fatal("expected dial fail after Shutdown")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

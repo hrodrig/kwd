@@ -45,10 +45,22 @@ func ListenTCP(addr string) (net.Listener, error) {
 	return net.Listen("tcp", addr)
 }
 
-// ServeHTTP serves srv on ln in a new goroutine. Errors from Serve (other than
-// http.ErrServerClosed) are discarded — bind already succeeded.
+// ServeHTTP serves srv on ln in a new goroutine and waits until Serve has
+// entered its accept loop (via BaseContext) so ShutdownHTTP is never raced
+// against a not-yet-started Server.
+// Errors from Serve (other than http.ErrServerClosed) are discarded — bind already succeeded.
 func ServeHTTP(ln net.Listener, srv *http.Server) {
+	started := make(chan struct{})
+	prev := srv.BaseContext
+	srv.BaseContext = func(l net.Listener) context.Context {
+		close(started)
+		if prev != nil {
+			return prev(l)
+		}
+		return context.Background()
+	}
 	go func() { _ = srv.Serve(ln) }()
+	<-started
 }
 
 // ShutdownHTTP stops accept and drains handlers with HTTPShutdownTimeout (D-19).
