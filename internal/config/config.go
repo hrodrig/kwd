@@ -31,6 +31,24 @@ type Config struct {
 	DryRun bool `yaml:"dry_run" mapstructure:"dry_run"`
 	// Notifications configures sinks; a nil Sinks means notifications disabled.
 	Notifications *Notifications `yaml:"notifications" mapstructure:"notifications"`
+	// HTTP is the optional daemon observability surface (listen empty = off).
+	// Handlers are started in plan 03-02; schema/defaults land here.
+	HTTP HTTPConfig `yaml:"http" mapstructure:"http"`
+	// ConfirmAlert is consecutive unhealthy ticks before NotifyAlert (D-09).
+	ConfirmAlert int `yaml:"confirm_alert" mapstructure:"confirm_alert"`
+	// ConfirmOk is consecutive Ready ticks before NotifyResolve (D-09).
+	ConfirmOk int `yaml:"confirm_ok" mapstructure:"confirm_ok"`
+	// RepeatWhileFiring re-sends unhealthy alerts each completed gap (D-13).
+	RepeatWhileFiring bool `yaml:"repeat_while_firing" mapstructure:"repeat_while_firing"`
+}
+
+// HTTPConfig holds listen address and probe/metrics paths (SPEC §5 / §9).
+// http.health_path / http.metrics_path stay YAML-only this phase (D-20/D-21);
+// --listen is registered in plan 03-02.
+type HTTPConfig struct {
+	Listen      string `yaml:"listen" mapstructure:"listen"`
+	HealthPath  string `yaml:"health_path" mapstructure:"health_path"`
+	MetricsPath string `yaml:"metrics_path" mapstructure:"metrics_path"`
 }
 
 // Cluster is "what is being watched" metadata.

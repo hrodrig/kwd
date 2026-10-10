@@ -72,6 +72,10 @@ help:
 	@echo "  $(GREEN)release-check$(RESET)             VERSION semver + man .TH + lint + test + cover-check + security + docker-scan"
 	@echo "  $(GREEN)release$(RESET)                   release-check then goreleaser (only from main)"
 	@echo "  $(GREEN)snapshot$(RESET)                  Goreleaser snapshot to $(DIST)/ (no tag)"
+	@echo "  $(GREEN)dist-freebsd$(RESET)              Tarball for FreeBSD ports (default FREEBSD_ARCH=amd64)"
+	@echo "  $(GREEN)dist-openbsd$(RESET)              Tarball for OpenBSD ports (default OPENBSD_ARCH=amd64)"
+	@echo "  $(GREEN)port-freebsd-sync$(RESET)         Set PORTVERSION in contrib/freebsd/Makefile from VERSION"
+	@echo "  $(GREEN)port-openbsd-sync$(RESET)         Set DISTNAME/PKGNAME/MASTER_SITES/DISTFILES in contrib/openbsd/port/Makefile"
 	@echo ""
 	@echo "$(CYAN)Current version:$(RESET) $$(cat VERSION 2>/dev/null | tr -d '\n\r' || echo '?') (ldflags $(VERSION), branch $(BRANCH))"
 	@echo ""
@@ -79,10 +83,12 @@ help:
 	@echo "  make build"
 	@echo "  make cover-check"
 	@echo "  make release-check"
+	@echo "  make dist-freebsd FREEBSD_ARCH=arm64"
 
 .PHONY: build build-all install clean docker-build docker-scan install-man install-kubectl-plugin
 .PHONY: test cover cover-check lint lint-fix tools security release-check release snapshot
 .PHONY: check-pins check-man-version check-docker govulncheck gocyclo grype
+.PHONY: dist-freebsd dist-openbsd port-freebsd-sync port-openbsd-sync
 
 build:
 	@mkdir -p bin
@@ -260,3 +266,79 @@ snapshot:
 	ver=$${ver_raw#v}; \
 	echo "$$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "Error: VERSION must be semantic MAJOR.MINOR.PATCH (got: $$ver_raw)"; exit 1; }; \
 	KWD_SNAPSHOT_VERSION="$$ver-next" goreleaser release --snapshot --clean
+
+.PHONY: port-freebsd-sync
+port-freebsd-sync:
+	@[ -n "$(PORT_VERSION)" ] || { echo "Error: VERSION file empty or missing"; exit 1; }
+	@sed -i.bak "s/^PORTVERSION=.*/PORTVERSION=\t$(PORT_VERSION)/" contrib/freebsd/Makefile
+	@rm -f contrib/freebsd/Makefile.bak
+	@echo "Updated contrib/freebsd/Makefile PORTVERSION to $(PORT_VERSION)"
+
+.PHONY: port-openbsd-sync
+port-openbsd-sync:
+	@[ -n "$(PORT_VERSION)" ] || { echo "Error: VERSION file empty or missing"; exit 1; }
+	@test -f contrib/openbsd/port/Makefile || { echo "Error: contrib/openbsd/port/Makefile not found"; exit 1; }
+	@sed -i.bak \
+	  -e 's#^DISTNAME =.*#DISTNAME =	kwd_v$(PORT_VERSION)_openbsd_$${MACHINE_ARCH:S/aarch64/arm64/}#' \
+	  -e 's#^PKGNAME =.*#PKGNAME =	kwd-$(PORT_VERSION)#' \
+	  -e 's#^MASTER_SITES =.*#MASTER_SITES =	https://github.com/hrodrig/kwd/releases/download/v$(PORT_VERSION)/#' \
+	  -e 's#^DISTFILES =.*#DISTFILES =	kwd_v$(PORT_VERSION)_openbsd_$${MACHINE_ARCH:S/aarch64/arm64/}.tar.gz#' \
+	  contrib/openbsd/port/Makefile
+	@rm -f contrib/openbsd/port/Makefile.bak
+	@echo "Updated contrib/openbsd/port/Makefile to $(PORT_VERSION)"
+
+.PHONY: dist-freebsd
+dist-freebsd:
+	@set -e; \
+	ver_raw=$$(cat VERSION 2>/dev/null | tr -d '\n\r'); \
+	[ -n "$$ver_raw" ] || { echo "Error: VERSION file is required"; exit 1; }; \
+	ver=$${ver_raw#v}; \
+	echo "$$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "Error: VERSION must be semantic MAJOR.MINOR.PATCH (got: $$ver_raw)"; exit 1; }; \
+	echo "$(FREEBSD_ARCH)" | grep -qE '^(amd64|arm64)$$' || { echo "Error: FREEBSD_ARCH must be amd64 or arm64"; exit 1; }; \
+	arch="$(FREEBSD_ARCH)"; \
+	out="$(DIST)/kwd_v$${ver}_freebsd_$$arch.tar.gz"; \
+	stage="/tmp/kwd-dist-root-$$PPID"; \
+	tmpbin="$(DIST)/kwd-freebsd-$$arch-$$PPID"; \
+	echo "Building kwd for FreeBSD $$arch with VERSION=v$$ver..."; \
+	mkdir -p "$(DIST)"; \
+	GOOS=freebsd GOARCH="$$arch" go build -trimpath $(LDFLAGS) -o "$$tmpbin" ./cmd/kwd; \
+	rm -rf "$$stage"; \
+	mkdir -p "$$stage/share/man/man1" "$$stage/share/doc/kwd" "$$stage/share/examples/kwd"; \
+	cp "$$tmpbin" "$$stage/kwd"; \
+	cp "$$tmpbin" "$$stage/kubectl-kwd"; \
+	rm -f "$$tmpbin"; \
+	cp LICENSE "$$stage/share/doc/kwd/LICENSE"; \
+	cp configs/kwd.sample.yml "$$stage/share/examples/kwd/kwd.sample.yml"; \
+	cp contrib/man/man1/kwd.1 "$$stage/share/man/man1/kwd.1"; \
+	cp contrib/man/man1/kubectl-kwd.1 "$$stage/share/man/man1/kubectl-kwd.1"; \
+	tar -C "$$stage" -czf "$$out" .; \
+	rm -rf "$$stage"; \
+	echo "Wrote $$out"
+
+.PHONY: dist-openbsd
+dist-openbsd:
+	@set -e; \
+	ver_raw=$$(cat VERSION 2>/dev/null | tr -d '\n\r'); \
+	[ -n "$$ver_raw" ] || { echo "Error: VERSION file is required"; exit 1; }; \
+	ver=$${ver_raw#v}; \
+	echo "$$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "Error: VERSION must be semantic MAJOR.MINOR.PATCH (got: $$ver_raw)"; exit 1; }; \
+	echo "$(OPENBSD_ARCH)" | grep -qE '^(amd64|arm64)$$' || { echo "Error: OPENBSD_ARCH must be amd64 or arm64"; exit 1; }; \
+	arch="$(OPENBSD_ARCH)"; \
+	out="$(DIST)/kwd_v$${ver}_openbsd_$$arch.tar.gz"; \
+	stage="/tmp/kwd-openbsd-dist-root-$$PPID"; \
+	tmpbin="$(DIST)/kwd-openbsd-$$arch-$$PPID"; \
+	echo "Building kwd for OpenBSD $$arch with VERSION=v$$ver..."; \
+	mkdir -p "$(DIST)"; \
+	GOOS=openbsd GOARCH="$$arch" go build -trimpath $(LDFLAGS) -o "$$tmpbin" ./cmd/kwd; \
+	rm -rf "$$stage"; \
+	mkdir -p "$$stage/share/man/man1" "$$stage/share/doc/kwd" "$$stage/share/examples/kwd"; \
+	cp "$$tmpbin" "$$stage/kwd"; \
+	cp "$$tmpbin" "$$stage/kubectl-kwd"; \
+	rm -f "$$tmpbin"; \
+	cp LICENSE "$$stage/share/doc/kwd/LICENSE"; \
+	cp configs/kwd.sample.yml "$$stage/share/examples/kwd/kwd.sample.yml"; \
+	cp contrib/man/man1/kwd.1 "$$stage/share/man/man1/kwd.1"; \
+	cp contrib/man/man1/kubectl-kwd.1 "$$stage/share/man/man1/kubectl-kwd.1"; \
+	tar -C "$$stage" -czf "$$out" .; \
+	rm -rf "$$stage"; \
+	echo "Wrote $$out"

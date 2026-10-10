@@ -21,8 +21,29 @@ resources:
   - deployment.default/my-app
   - statefulset.default/my-db
 
-# interval: check interval in seconds. 0 = run once (single-pass, exit 0/1).
+# interval: check interval in seconds.
+#   0  = single-pass (exit 0/1). Override: KWD_INTERVAL or `kwd check --interval N`.
+#   >0 = daemon loop (serial gap between passes); notify + table on transitions only.
+# There is no --daemon flag — runtime shape is solely interval.
 interval: 0
+
+# http: optional observability surface (daemon only; ignored when interval is 0).
+# Prefer 127.0.0.1 — probes/metrics are unauthenticated.
+# Override listen: KWD_HTTP_LISTEN or `kwd check --listen`.
+# health_path / metrics_path are YAML-only (no CLI flags yet).
+# http:
+#   listen: "127.0.0.1:8080"
+#   health_path: "/healthz"
+#   metrics_path: "/metrics"
+
+# confirm_alert / confirm_ok: consecutive ticks before notify alert / resolve.
+# Defaults 1 (Phase 2 timing). Override: KWD_CONFIRM_* or --confirm-alert / --confirm-ok.
+# confirm_alert: 1
+# confirm_ok: 1
+
+# repeat_while_firing: re-send unhealthy notify every completed gap while firing.
+# Default false. Override: KWD_REPEAT_WHILE_FIRING or --repeat-while-firing.
+# repeat_while_firing: false
 
 # retry: per-check retry backoff (initial_backoff must be <= max_backoff).
 retry:
