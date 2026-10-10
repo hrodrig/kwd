@@ -8,15 +8,23 @@ Operator runbooks and in-cluster manifests belong in **[kwd-selfhosted](https://
 |-------|------|
 | [`kwd-hero-oss.jpg`](kwd-hero-oss.jpg) | README hero banner |
 
-## Terminal demo (VHS) — planned
+<a id="terminal-demo-vhs"></a>
+## Terminal demo (VHS)
 
-Family CLIs ([kzero](https://github.com/hrodrig/kzero), [groot](https://github.com/hrodrig/groot), [pgwd](https://github.com/hrodrig/pgwd)) ship a Charmbracelet [VHS](https://github.com/charmbracelet/vhs) tape → `demo.gif`.
+| Asset | Role |
+|-------|------|
+| [`demo.tape`](demo.tape) | Charmbracelet [VHS](https://github.com/charmbracelet/vhs) script |
+| [`demo-kwd.yaml`](demo-kwd.yaml) | Minimal config for `analyze` in the tape (no cluster required) |
+| [`demo.gif`](demo.gif) | Recorded GIF embedded in the root README |
 
-**Not in-tree yet:** `docs/demo.tape` / `docs/demo.gif`. Do not link a missing GIF from the root README. When added:
+From the repository root (binary on `PATH`, ldflags from `make build` / `make install`):
 
 ```bash
-make install
-PATH="$(go env GOPATH)/bin:$PATH" vhs docs/demo.tape
+make build
+export PATH="$(pwd)/bin:$PATH"
+bash -c "vhs docs/demo.tape"
 ```
 
-`kwd version` in the tape must match **`VERSION`**.
+Use `bash -c` so the recorder does not inherit zsh/Oh My Zsh prompts.
+
+**Re-record after every `VERSION` bump** — `kwd version` in the GIF must match **`VERSION`**.

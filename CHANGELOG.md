@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Notification payloads carry SPEC-full fields (level/color, title, per-resource body, UTC timestamp, `client.id`, cluster) composed into Slack Incoming Webhook plain `{"text":...}`.
-- README aligned with the hrodrig CLI family: hero banner, related-tools links, Security/CodeQL/gghstats badges; removed broken VHS `demo.gif` claim (tape/gif still planned); Install no longer points at unpublished BSD ports / Homebrew.
+- README aligned with the hrodrig CLI family: hero banner, related-tools links, Security/CodeQL/gghstats badges; Install no longer points at unpublished BSD ports / Homebrew.
+- Terminal demo: Charmbracelet VHS `docs/demo.tape` → `docs/demo.gif` (help, version, sample config, analyze, `check --help`).
 
 [↑ Back to top](#top)
 

@@ -35,10 +35,15 @@ Declarative, out-of-band, and easy to script — the "is this cluster healthy *r
 **Releases** ship **binaries**, **`.deb`** / **`.rpm`**, and **`ghcr.io/hrodrig/kwd`** (Cosign + SBOM via GoReleaser). Behavior contract: **[SPECIFICATIONS.md](SPECIFICATIONS.md)**.
 
 <a id="terminal-demo"></a>
-**Terminal demo (VHS):** not recorded yet — `docs/demo.tape` / `docs/demo.gif` are planned (same Charmbracelet [VHS](https://github.com/charmbracelet/vhs) pattern as the family). See [docs/README.md](docs/README.md).
+**Terminal demo** (recorded with [VHS](https://github.com/charmbracelet/vhs); source [`docs/demo.tape`](docs/demo.tape)):
+
+![kwd CLI — help, version, sample config, analyze, check flags](docs/demo.gif)
+
+Regenerate from the repo root: **[docs/README.md — Terminal demo](docs/README.md#terminal-demo-vhs)**.
 
 ## Table of contents
 
+- [Terminal demo](#terminal-demo)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
@@ -363,7 +368,7 @@ Use in-cluster config, or mount a kubeconfig to check a remote cluster.
 | Slice | Scope |
 |-------|-------|
 | **Unreleased → v0.2.0** | Daemon (`interval > 0`), hysteresis / `repeat_while_firing`, HTTP `/healthz` + `kwd_*` `/metrics`, SPEC-full notify payloads |
-| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew / Homebrew / BSD ports, VHS `docs/demo.gif` |
+| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew / Homebrew / BSD ports |
 
 Each slice is additive on the same check path. Behavior details: [SPECIFICATIONS.md](SPECIFICATIONS.md). Product notes: [docs/README.md](docs/README.md).
 
