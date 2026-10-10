@@ -1,6 +1,6 @@
 .\" kwd(1) - Kubernetes workload readiness watchdog
 .\" Manual page for kwd
-.TH KWD 1 "2026-10-09" "kwd v0.1.0" "User Commands"
+.TH KWD 1 "2026-10-10" "kwd v0.2.0" "User Commands"
 .SH NAME
 kwd \- Kubernetes workload readiness watchdog
 .SH SYNOPSIS
@@ -23,13 +23,24 @@ directly (no
 .BR kubectl
 binary) and selects its target cluster by kubeconfig context.
 .PP
-In v0.1.0, kwd checks
+kwd checks
 .B deployment
 and
 .B statefulset
-kinds, runs once per invocation (
-.IR "interval: 0" ),
-and can send a Slack notification when a resource is not ready.
+kinds. With
+.IR "interval: 0"
+(the default) it runs once and exits
+.BR 0 / 1 .
+With
+.I interval > 0
+it runs a serial daemon loop (check, wait, check), prints the readiness
+table and notifies only on overall state transitions, and exits
+.B 0
+on SIGINT/SIGTERM. There is no
+.B \-\-daemon
+flag; runtime shape is solely
+.IR interval .
+Slack notifications use a fail-closed webhook env var when configured.
 .SH COMMANDS
 .TP
 .B check
@@ -67,6 +78,55 @@ Config file path. Default when omitted:
 .BR \-\-print\-sample\-config
 Write the sample config to stdout and exit (same as
 .IR configs/kwd.sample.yml ).
+.TP
+.BR \-\-interval " \fIseconds\fR"
+Override
+.I interval
+for
+.B check
+only (seconds;
+.B 0
+= single-pass). Precedence: YAML →
+.B KWD_INTERVAL
+→ this flag (flag applies only when set). There is no
+.B \-\-daemon
+flag.
+.TP
+.BR \-\-listen " \fIaddr\fR"
+Override
+.I http.listen
+for
+.B check
+only (daemon shape). Empty disables HTTP. Precedence: YAML →
+.B KWD_HTTP_LISTEN
+→ this flag (applies only when set). Prefer
+.BR 127.0.0.1
+— the surface is unauthenticated.
+.I http.health_path
+and
+.I http.metrics_path
+are YAML-only.
+.TP
+.BR \-\-confirm\-alert " \fIN\fR"
+Override
+.I confirm_alert
+(consecutive unhealthy ticks before alert notify). YAML →
+.B KWD_CONFIRM_ALERT
+→ flag when set.
+.TP
+.BR \-\-confirm\-ok " \fIN\fR"
+Override
+.I confirm_ok
+(consecutive ready ticks before resolve notify). YAML →
+.B KWD_CONFIRM_OK
+→ flag when set.
+.TP
+.BR \-\-repeat\-while\-firing
+Override
+.I repeat_while_firing
+(re-notify unhealthy every completed gap while firing). YAML →
+.B KWD_REPEAT_WHILE_FIRING
+→ flag when set.
 .SH CONFIGURATION
 Configuration is a YAML file with these top-level blocks:
 .IR cluster ,
@@ -74,6 +134,10 @@ Configuration is a YAML file with these top-level blocks:
 .IR client ,
 .IR resources ,
 .IR interval ,
+.IR http ,
+.IR confirm_alert ,
+.IR confirm_ok ,
+.IR repeat_while_firing ,
 .IR notifications ,
 .IR dry_run .
 Resource refs use
@@ -82,11 +146,32 @@ Resource refs use
 .IR deployment.default/web ,
 .IR statefulset.myns/redis ).
 .PP
+When
+.I interval > 0
+and
+.I http.listen
+is set,
+.B kwd
+serves
+.B /healthz
+(raw last completed tick;
+.B 503
+before the first tick) and
+.B /metrics
+(Prometheus
+.B kwd_*
+gauges). Bind failure exits before the loop starts.
+.PP
 Environment variables with prefix
 .B KWD_
 override YAML when loaded (e.g.
 .BR KWD_CLIENT_ID ,
 .BR KWD_KUBE_CONTEXT ,
+.BR KWD_INTERVAL ,
+.BR KWD_HTTP_LISTEN ,
+.BR KWD_CONFIRM_ALERT ,
+.BR KWD_CONFIRM_OK ,
+.BR KWD_REPEAT_WHILE_FIRING ,
 .BR KWD_DRY_RUN ).
 The Slack webhook is read from
 .BR KWD_SLACK_WEBHOOK
@@ -94,10 +179,13 @@ The Slack webhook is read from
 .SH EXIT STATUS
 .TP
 .B 0
-Success \- all declared resources ready.
+Success \- all declared resources ready (single-pass), or graceful daemon
+shutdown (SIGINT/SIGTERM when
+.IR "interval > 0" ).
 .TP
 .B 1
-One or more resources not-ready or errored.
+One or more resources not-ready or errored (single-pass only; the daemon
+shape does not map last-tick health to the exit code).
 .TP
 .B 2
 Reserved for

@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -17,12 +18,28 @@ var errPrintSampleDone = errors.New("sample config printed")
 var (
 	configPath        string
 	printSampleConfig bool
+	// intervalFlag is the --interval override on check only (D-01). Applied
+	// after loadConfig only when Flags().Changed("interval") so YAML →
+	// KWD_INTERVAL → flag precedence holds. Not registered on root —
+	// bare `kwd` uses YAML/env interval only.
+	intervalFlag int
+	// Phase 3 D-20 listen/confirm/repeat overrides (Changed only).
+	listenFlag            string
+	confirmAlertFlag      int
+	confirmOkFlag         int
+	repeatWhileFiringFlag bool
 )
 
 // Execute runs the root command and returns any error (mapped to an exit code
-// by cmd/kwd/main.go).
+// by cmd/kwd/main.go). Prefer ExecuteContext from main so SIGINT/SIGTERM
+// cancel Daemon cleanly (D-07).
 func Execute() error {
-	err := NewRootCmd().Execute()
+	return ExecuteContext(context.Background())
+}
+
+// ExecuteContext runs the root command with ctx (typically signal.NotifyContext).
+func ExecuteContext(ctx context.Context) error {
+	err := NewRootCmd().ExecuteContext(ctx)
 	if errors.Is(err, errPrintSampleDone) {
 		return nil
 	}
@@ -54,6 +71,27 @@ func NewRootCmd() *cobra.Command {
 
 	root.PersistentFlags().StringVar(&configPath, "config", config.DefaultConfigPath, "path to config file")
 	root.PersistentFlags().BoolVar(&printSampleConfig, "print-sample-config", false, "print sample kwd.yml to stdout and exit")
+
+	// --interval on check only (D-01). No --daemon flag (D-02): interval alone
+	// selects single-pass (0) vs forever loop (>0). Guard Lookup: checkCommand
+	// is a package-level var reused across NewRootCmd calls in tests.
+	// D-20 listen/confirm/repeat flags. health_path/metrics_path YAML-only.
+	// Full YAML↔CLI matrix for every config key is backlog (D-21).
+	if checkCommand.Flags().Lookup("interval") == nil {
+		checkCommand.Flags().IntVar(&intervalFlag, "interval", 0, "override interval seconds (0 = single-pass; >0 = daemon loop)")
+	}
+	if checkCommand.Flags().Lookup("listen") == nil {
+		checkCommand.Flags().StringVar(&listenFlag, "listen", "", "override http.listen (daemon only; empty = off)")
+	}
+	if checkCommand.Flags().Lookup("confirm-alert") == nil {
+		checkCommand.Flags().IntVar(&confirmAlertFlag, "confirm-alert", 1, "consecutive unhealthy ticks before alert notify")
+	}
+	if checkCommand.Flags().Lookup("confirm-ok") == nil {
+		checkCommand.Flags().IntVar(&confirmOkFlag, "confirm-ok", 1, "consecutive ready ticks before resolve notify")
+	}
+	if checkCommand.Flags().Lookup("repeat-while-firing") == nil {
+		checkCommand.Flags().BoolVar(&repeatWhileFiringFlag, "repeat-while-firing", false, "re-notify unhealthy every completed gap while firing")
+	}
 
 	root.AddCommand(checkCommand)
 	root.AddCommand(newAnalyzeCmd())

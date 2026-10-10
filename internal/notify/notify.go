@@ -23,16 +23,6 @@ type Sender interface {
 	Type() string
 }
 
-// Message is the notification payload, enriched with client+cluster metadata.
-type Message struct {
-	// ClientID is the resolved watching identity.
-	ClientID string
-	// Cluster is cluster.name ("what is watched").
-	Cluster string
-	// Text is the human-readable alert body.
-	Text string
-}
-
 // Slack sends via Incoming Webhook (plain text).
 type Slack struct {
 	WebhookURL string

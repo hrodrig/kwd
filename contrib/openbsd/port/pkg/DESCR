@@ -1,0 +1,8 @@
+kwd (Kube Watch Dog) is a configuration-first CLI that checks Kubernetes
+workload readiness from a YAML profile. It is read-only toward the cluster
+and uses client-go (no kubectl subprocess for checks).
+
+This package installs the static binary, the kubectl-kwd plugin shim, man
+pages, license text, and a sample config under share/examples/kwd/.
+
+WWW: https://github.com/hrodrig/kwd

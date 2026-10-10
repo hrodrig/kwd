@@ -1,6 +1,6 @@
 .\" kubectl-kwd(1) - kwd as a kubectl plugin
 .\" Manual page for kubectl-kwd
-.TH KUBECTL\-KWD 1 "2026-10-09" "kwd v0.1.0" "User Commands"
+.TH KUBECTL\-KWD 1 "2026-10-10" "kwd v0.2.0" "User Commands"
 .SH NAME
 kubectl\-kwd \- run kwd as a kubectl plugin
 .SH SYNOPSIS
@@ -18,6 +18,27 @@ prefix so kubectl plugin discovery resolves it as
 It is the same binary and accepts the same commands and flags; see
 .BR kwd (1)
 for the full manual.
+.PP
+Flag parity with
+.BR kwd (1)
+includes
+.B check \-\-interval
+(seconds;
+.B 0
+= single-pass; YAML →
+.B KWD_INTERVAL
+→ flag),
+.B \-\-listen
+(YAML →
+.B KWD_HTTP_LISTEN
+→ flag),
+.BR \-\-confirm\-alert ,
+.BR \-\-confirm\-ok ,
+and
+.BR \-\-repeat\-while\-firing
+(each applies only when set). There is no
+.B \-\-daemon
+flag.
 .SH SEE ALSO
 .BR kwd (1),
 .BR kubectl (1)

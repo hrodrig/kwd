@@ -1,0 +1,14 @@
+# Minimal profile for the VHS terminal demo (analyze only — no cluster required).
+cluster:
+  name: demo
+  environment: local
+
+kube:
+  context: ""
+
+resources:
+  - deployment.default/web
+  - statefulset.default/db
+
+interval: 0
+dry_run: true

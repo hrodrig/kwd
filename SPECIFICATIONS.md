@@ -26,7 +26,7 @@ setting selects the runtime shape, exactly like `pgwd`:
 | `interval` | Runtime shape |
 |-----------|----------------|
 | `0` (default) | Single-pass. Check everything once, emit the verdict, exit `0` or `1`. |
-| `> 0` (seconds) | Daemon loop. Check on every tick, forever. Notify on state transitions. Serve HTTP if configured. |
+| `> 0` (seconds) | Daemon loop. Serial check → wait(`interval`) → check (never concurrent ticks). Notify and print the readiness table on overall state transitions only. Serve HTTP if configured (Phase 3). Graceful SIGINT/SIGTERM → exit `0`. |
 
 This is the core design rule: **the check logic is identical in both shapes.**
 Only the loop and the reporting surface differ. No two code paths, no
@@ -37,7 +37,7 @@ dispatched `--daemon` flag.
 `kwd` is designed for phased delivery without breaking this contract:
 
 1. **Plan 1 — single-pass.** `interval: 0`, readiness checks, `exit 0/1`.
-2. **Plan 2 — loop.** `interval > 0`, same check inside a ticker.
+2. **Plan 2 — loop.** `interval > 0`, same check in a serial daemon loop.
 3. **Plan 3 — observability.** HTTP `/healthz` + `/metrics`, hysteresis
    (`confirm_alert` / `confirm_ok`), `repeat_while_firing`.
 
@@ -131,6 +131,10 @@ is given) — plus a small set of read-only helpers modeled on `kzero`.
 | `--config` | Path to the YAML config file | `kwd.yaml` |
 | `--kubeconfig` | Path to kubeconfig for `client-go` | `KUBECONFIG` env, then `~/.kube/config` |
 | `--interval` | Override `interval` (seconds; `0` = single-pass) | from config |
+| `--listen` | Override `http.listen` (daemon only; empty = HTTP off) | from config / `KWD_HTTP_LISTEN` |
+| `--confirm-alert` | Override `confirm_alert` (consecutive unhealthy ticks before alert) | from config / `KWD_CONFIRM_ALERT` |
+| `--confirm-ok` | Override `confirm_ok` (consecutive ready ticks before resolve) | from config / `KWD_CONFIRM_OK` |
+| `--repeat-while-firing` | Override `repeat_while_firing` (re-notify every gap while firing) | from config / `KWD_REPEAT_WHILE_FIRING` |
 | `--dry-run` | Run checks and print the verdict, but do not send notifications | `false` |
 | `--color` | Colorize output | `auto` (`always` / `never`) |
 | `--log-format` | Engine log line format | `text` (`json`) |
@@ -139,18 +143,22 @@ is given) — plus a small set of read-only helpers modeled on `kzero`.
 | `--version` | Print version and build metadata | — |
 
 `--show-sample-config`, `--version`, `analyze`, `target`, and `doctor` never
-send notifications. `--interval` takes effect only on `check`.
+send notifications. `--interval`, `--listen`, `--confirm-alert`, `--confirm-ok`,
+and `--repeat-while-firing` take effect only on `check`, and only when the flag
+is set (`Flags().Changed`). `http.health_path` and `http.metrics_path` are
+YAML-only in this version. Remaining YAML keys may gain CLI overrides later.
 
 Exit codes:
 
 | Code | Meaning |
 |------|---------|
-| `0` | `check` single-pass: every configured resource is ready. `analyze`/`target`/`doctor`/`notify test` succeeded. |
-| `1` | at least one resource is not ready, or a check errored. |
+| `0` | `check` single-pass: every configured resource is ready. Daemon shape: graceful SIGINT/SIGTERM shutdown. `analyze`/`target`/`doctor`/`notify test` succeeded. |
+| `1` | Single-pass: at least one resource is not ready, or a check errored. (Daemon does not map last-tick health to exit `1`.) |
 | `2` | `doctor` one or more checks failed (config / API / RBAC / refs). |
 
 `--show-sample-config`, `--version`, `analyze`, `target`, and `doctor` exit `0`
-on success. The daemon shape (`interval > 0`) does not exit.
+on success. The daemon shape (`interval > 0`) runs until signaled; it does not
+use the process exit code as the health channel.
 
 ## 5. Configuration schema
 
@@ -373,19 +381,33 @@ fails closed with an error.
 A notification is emitted when `--force-notification` is set **or** on a state
 transition (unhealthy → or → healthy, per hysteresis). Each payload carries a
 `color`/level (green healthy, red unhealthy), a title, a text body listing each
-resource and its status, and a UTC timestamp. When `repeat_while_firing` is
-`true`, the unhealthy notification is re-sent every `interval` while the bad
-state persists.
+resource and its status, a UTC timestamp, plus resolved `client.id` and cluster
+metadata. The Slack Incoming Webhook sink encodes those fields into the plain
+JSON `text` field (`{"text":...}`); richer attachment JSON is optional polish.
+In the daemon shape, the readiness table is printed on the same transition
+moments (not every tick). When `repeat_while_firing` is `true`, the unhealthy
+notification is re-sent every `interval` while the bad state persists
+(Phase 3).
 
 ## 9. HTTP surface (daemon shape)
 
 When `http.listen` is set and `interval > 0`, `kwd` serves:
 
-- **`/healthz`** (or `http.health_path`) — `200` when the last completed check
-  reported healthy, `503` otherwise. Always answers; reflects the most recent
-  tick's verdict.
-- **`/metrics`** (or `http.metrics_path`) — Prometheus-format metrics:
-  per-resource readiness gauge, check latency, tick timestamp.
+- **`/healthz`** (or `http.health_path`) — `text/plain` body `ok` or `unhealthy`.
+  `200` when the **raw** last completed tick reported every resource Ready;
+  `503` before the first completed tick or when any resource is not ready /
+  errored. Reflects the last completed pass immediately (never waits on an
+  in-flight check). Healthz does **not** use post-hysteresis firing state —
+  hysteresis gates notifications only.
+- **`/metrics`** (or `http.metrics_path`) — Prometheus text exposition
+  (`kwd_resource_ready{kind,namespace,name}`, `kwd_check_latency_seconds`,
+  `kwd_last_tick_timestamp_seconds`, `kwd_healthy`). Always `200`; before the
+  first tick gauges are zeroed (no per-resource samples yet).
+
+Bind failure exits non-zero before the daemon loop starts. SIGINT/SIGTERM
+cancels the shared process context: the HTTP server shuts down briefly, then
+Daemon returns nil → process exit `0`. Prefer binding to `127.0.0.1` — the
+surface is unauthenticated.
 
 The HTTP surface has no effect in single-pass shape.
 

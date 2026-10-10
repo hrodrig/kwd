@@ -1,0 +1,6 @@
+bin/kwd
+bin/kubectl-kwd
+man/man1/kwd.1
+man/man1/kubectl-kwd.1
+share/doc/kwd/LICENSE
+share/examples/kwd/kwd.sample.yml

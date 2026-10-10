@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
+## [Unreleased]
+
+[↑ Back to top](#top)
+
+## [0.2.0] - 2026-10-10
+
+### Added
+
+- Daemon loop when `interval > 0` (or `kwd check --interval N` / `KWD_INTERVAL`): serial check → wait → check, notify on overall ready ↔ not-ready transitions (alert and resolution), readiness table on transition only, SIGINT/SIGTERM → exit 0. No `--daemon` flag.
+- Daemon HTTP surface when `http.listen` is set (`KWD_HTTP_LISTEN` / `kwd check --listen`): `/healthz` (raw last-tick `ok`/`unhealthy`, 503 before first tick) and `/metrics` (hand-rolled Prometheus `kwd_*` gauges). Fail-fast bind; shared signal cancel + short Shutdown.
+- Notify hysteresis: `confirm_alert` / `confirm_ok` (per-resource streaks → overall firing) and optional `repeat_while_firing`. CLI: `--confirm-alert`, `--confirm-ok`, `--repeat-while-firing` (`Flags().Changed` only).
+- FreeBSD / OpenBSD port skeletons under `contrib/freebsd/` and `contrib/openbsd/port/` (CLI + `kubectl-kwd`, man pages, sample config); `make port-freebsd-sync`, `port-openbsd-sync`, `dist-freebsd`, `dist-openbsd`.
+
+### Changed
+
+- Notification payloads carry SPEC-full fields (level/color, title, per-resource body, UTC timestamp, `client.id`, cluster) composed into Slack Incoming Webhook plain `{"text":...}`.
+- README aligned with the hrodrig CLI family: hero banner, related-tools links, Security/CodeQL/gghstats badges; Install documents BSD port skeletons (official trees still pending) and unpublished Homebrew.
+- Terminal demo: Charmbracelet VHS `docs/demo.tape` → `docs/demo.gif` (help, version, sample config, analyze, `check --help`).
+
+[↑ Back to top](#top)
+
 ## [0.1.0] - 2026-10-09
 
 ### Added
@@ -30,5 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
-[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hrodrig/kwd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hrodrig/kwd/releases/tag/v0.1.0
