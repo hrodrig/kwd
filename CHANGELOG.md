@@ -11,8 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+[↑ Back to top](#top)
+
+## [0.3.0] - 2026-11-02
+
+### Fixed
+
+- Bare `kwd` (no `check` subcommand) no longer panics under client-go ≥0.36: root `RunE` now uses the executing command's context from `ExecuteContext` instead of the package-level `check` command (whose context stayed nil). Defensive `context.Background()` fallback if context is still nil.
+
 ### Changed
 
+- Toolchain pin: Go **1.27.3** (`go.mod`, Dockerfile, README badge).
 - README and SPECIFICATIONS: early-development (pre-1.0) disclaimer — not for sole production readiness/alerting until v1.0.0; use at your own risk (MIT AS IS).
 
 [↑ Back to top](#top)
@@ -63,7 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
-[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hrodrig/kwd/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/hrodrig/kwd/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/hrodrig/kwd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hrodrig/kwd/releases/tag/v0.1.0
