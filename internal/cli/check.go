@@ -68,7 +68,19 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return exitcode.New(exitcode.Failure, fmt.Errorf("clientset: %w", err))
 	}
 
-	return checkWithClient(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), cfg, cs)
+	return checkWithClient(ensureContext(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr(), cfg, cs)
+}
+
+// ensureContext returns cmd.Context(), or context.Background() when nil.
+// client-go ≥0.36 panics on a nil context in rest.Request.Do.
+func ensureContext(cmd *cobra.Command) context.Context {
+	if cmd == nil {
+		return context.Background()
+	}
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
 }
 
 // checkWithClient runs a single-pass check (Interval == 0) or Engine.Daemon
