@@ -5,7 +5,7 @@
 [![Version](https://img.shields.io/badge/version-0.2.1-blue)](https://github.com/hrodrig/kwd/releases)
 [![GitHub release](https://img.shields.io/github/v/release/hrodrig/kwd)](https://github.com/hrodrig/kwd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Go 1.27.2](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://go.dev/dl/)
+[![Go 1.27.3](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://go.dev/dl/)
 [![CI](https://github.com/hrodrig/kwd/actions/workflows/ci.yml/badge.svg)](https://github.com/hrodrig/kwd/actions/workflows/ci.yml)
 [![Security](https://github.com/hrodrig/kwd/actions/workflows/security.yml/badge.svg)](https://github.com/hrodrig/kwd/actions/workflows/security.yml)
 [![CodeQL](https://github.com/hrodrig/kwd/actions/workflows/codeql.yml/badge.svg)](https://github.com/hrodrig/kwd/actions/workflows/codeql.yml)
@@ -353,7 +353,7 @@ make cover-check   # fail if total statement coverage < 80%
 
 ## Docker
 
-**Build from source** — multi-stage `Dockerfile` (Go 1.27.2 build; **distroless/static-debian13:nonroot** runtime): static binary, non-root, no Alpine OS packages.
+**Build from source** — multi-stage `Dockerfile` (Go 1.27.3 build; **distroless/static-debian13:nonroot** runtime): static binary, non-root, no Alpine OS packages.
 
 ```bash
 make docker-build

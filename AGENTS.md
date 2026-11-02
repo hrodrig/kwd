@@ -47,7 +47,7 @@ Dog — a Kubernetes workload readiness watchdog). See
 - Install to `$GOBIN`: `make install` (`make install-man` for the man pages,
   `make install-kubectl-plugin` for the `kubectl-kwd` shim).
 - Cross-compile: `make build-all` (output under `dist/`).
-- Toolchain: pinned in **`go.mod`** (currently `go 1.27.2`); CI follows it via
+- Toolchain: pinned in **`go.mod`** (currently `go 1.27.3`); CI follows it via
   `go-version-file`, so bumping the directive moves the runner too.
 
 ## Test and quality commands

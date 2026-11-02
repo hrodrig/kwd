@@ -54,8 +54,12 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
+		// Bare `kwd` must call runCheck with *this* cmd (root). ExecuteContext
+		// sets ctx only on the selected command; re-dispatching via
+		// checkCommand.RunE(checkCommand, …) left checkCommand.ctx nil and
+		// client-go ≥0.36 panics in Request.Do / logr.FromContext.
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return checkCommand.RunE(checkCommand, args)
+			return runCheck(cmd, args)
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if !printSampleConfig {

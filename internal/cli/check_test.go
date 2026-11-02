@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/hrodrig/kwd/internal/config"
 	"github.com/hrodrig/kwd/internal/exitcode"
+	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -18,6 +20,62 @@ import (
 
 // int32p returns a pointer to v (replica counts are pointers in the k8s API).
 func int32p(v int32) *int32 { return &v }
+
+func TestEnsureContextNilFallsBack(t *testing.T) {
+	if ctx := ensureContext(nil); ctx == nil {
+		t.Fatal("ensureContext(nil) must not return nil")
+	}
+	cmd := &cobra.Command{}
+	if ctx := ensureContext(cmd); ctx == nil {
+		t.Fatal("ensureContext(cmd with nil ctx) must not return nil")
+	}
+	want := context.WithValue(context.Background(), struct{}{}, "ok")
+	cmd.SetContext(want)
+	if got := ensureContext(cmd); got != want {
+		t.Fatalf("ensureContext = %v, want %v", got, want)
+	}
+}
+
+// Bare `kwd` selects root; cobra never sets package-level checkCommand.ctx.
+// Re-dispatch via checkCommand.RunE(checkCommand, …) used to pass nil into
+// client-go. This locks the trap so a regression fails before API calls.
+func TestBareRootSelectionLeavesCheckCommandContextNil(t *testing.T) {
+	checkCommand.SetContext(nil)
+	root := NewRootCmd()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--print-sample-config"})
+	// Direct cobra ExecuteContext (not cli.ExecuteContext) surfaces errPrintSampleDone.
+	if err := root.ExecuteContext(context.Background()); err != nil && !errors.Is(err, errPrintSampleDone) {
+		t.Fatalf("ExecuteContext: %v", err)
+	}
+	if checkCommand.Context() != nil {
+		t.Fatal("bare root path must leave checkCommand.Context() nil; runCheck must use the executing cmd")
+	}
+}
+
+func TestBareRootRunEUsesExecutingCommandContext(t *testing.T) {
+	checkCommand.SetContext(nil)
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{Resources: []string{"deployment.default/app"}}
+
+	root := &cobra.Command{Use: "kwd"}
+	parent := context.WithValue(context.Background(), struct{}{}, "bare-root")
+	root.SetContext(parent)
+
+	var out, errOut bytes.Buffer
+	// Mimic fixed root.RunE: runCheck(cmd) with the executing root, not checkCommand.
+	if err := checkWithClient(ensureContext(root), &out, &errOut, cfg, cs); err != nil {
+		t.Fatalf("checkWithClient: %v", err)
+	}
+	if checkCommand.Context() != nil {
+		t.Fatal("must not rely on checkCommand.Context() for bare root")
+	}
+}
 
 func TestCheckWithClientAllReady(t *testing.T) {
 	cs := fake.NewSimpleClientset(&appsv1.Deployment{
