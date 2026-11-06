@@ -241,7 +241,7 @@ Contract details: [SPECIFICATIONS.md](SPECIFICATIONS.md) §§2, 8–9.
 
 ## Notifications
 
-When a check finds a **not-ready** resource (and `dry_run` is false), `kwd` sends one alert per configured sink. **v0.1.0 ships the Slack sink.** Daemon shape notifies on **transitions** (and optional repeats), not every tick.
+When a check finds a **not-ready** resource (and `dry_run` is false), `kwd` sends one alert per configured sink. **Slack** ships today as a colored Incoming Webhook **attachment** (green OK / red alert, Cluster / Client / Time + Details). Daemon shape notifies on **transitions** (and optional repeats), not every tick.
 
 ```yaml
 notifications:
@@ -251,7 +251,21 @@ notifications:
 
 The webhook URL comes from **`KWD_SLACK_WEBHOOK`** (fail-closed): if the sink is declared but the env var is missing, `kwd` errors on stderr rather than silently skipping the alert. Notification delivery is **best-effort** — a failed send is logged, and the check's exit code still reflects resource health, not delivery.
 
-More sinks (and `--force-notification` for scheduled healthy reports) land in later releases.
+**Scheduled healthy digests** (cron / systemd timer):
+
+```bash
+kwd check --config /etc/kwd/kwd.yml --force-notification
+```
+
+Single-pass only (`interval: 0`). Always FanOut after the pass; exit still `0`/`1` from readiness. Ignored when `interval > 0`.
+
+**Smoke sinks** without touching the cluster:
+
+```bash
+kwd notify test --config /etc/kwd/kwd.yml
+```
+
+More sink types land in later releases.
 
 [↑ Back to top](#top)
 
@@ -378,7 +392,7 @@ Use in-cluster config, or mount a kubeconfig to check a remote cluster.
 
 | Slice | Scope |
 |-------|-------|
-| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew; submit FreeBSD/OpenBSD ports upstream |
+| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks, `doctor`, krew; submit FreeBSD/OpenBSD ports upstream |
 
 Each slice is additive on the same check path. Behavior details: [SPECIFICATIONS.md](SPECIFICATIONS.md). Product notes: [docs/README.md](docs/README.md).
 

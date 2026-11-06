@@ -8,8 +8,7 @@ import (
 	"github.com/hrodrig/kwd/internal/check"
 )
 
-// SPEC §8 level / color for alert vs resolution (kzero field semantics;
-// Slack Incoming Webhook still POSTs plain {"text":...}).
+// SPEC §8 level / color for alert vs resolution.
 const (
 	LevelAlert = "alert"
 	LevelOK    = "ok"
@@ -26,12 +25,12 @@ type Message struct {
 	Title     string
 	Body      string
 	Timestamp time.Time
-	// Text is the Slack webhook body; ComposeText fills it from SPEC fields.
+	// Text is a plain fallback composition (ComposeText); Slack uses attachments.
 	Text string
 }
 
 // BuildTransitionMessage builds an alert (alert=true) or resolution payload
-// with SPEC-full fields and composed Text for Slack.
+// with SPEC-full fields and composed Text.
 func BuildTransitionMessage(clientID, cluster string, alert bool, verdicts []check.Verdict, ts time.Time) Message {
 	return buildTransitionMessage(clientID, cluster, alert, false, verdicts, ts)
 }
@@ -40,6 +39,34 @@ func BuildTransitionMessage(clientID, cluster string, alert bool, verdicts []che
 // Resolve titles are unchanged — use BuildTransitionMessage(..., false, ...).
 func BuildRepeatMessage(clientID, cluster string, verdicts []check.Verdict, ts time.Time) Message {
 	return buildTransitionMessage(clientID, cluster, true, true, verdicts, ts)
+}
+
+// BuildReportMessage builds a scheduled healthy digest (--force-notification).
+func BuildReportMessage(clientID, cluster string, verdicts []check.Verdict, ts time.Time) Message {
+	m := buildTransitionMessage(clientID, cluster, false, false, verdicts, ts)
+	m.Title = "kwd report: all resources ready"
+	m.Text = ComposeText(m)
+	return m
+}
+
+// BuildTestMessage builds a synthetic payload for `kwd notify test` (no check).
+func BuildTestMessage(clientID, cluster string, ts time.Time) Message {
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	} else {
+		ts = ts.UTC()
+	}
+	m := Message{
+		ClientID:  clientID,
+		Cluster:   cluster,
+		Level:     LevelOK,
+		Color:     ColorOK,
+		Title:     "kwd notify test",
+		Body:      "• synthetic test — no readiness check ran",
+		Timestamp: ts,
+	}
+	m.Text = ComposeText(m)
+	return m
 }
 
 func buildTransitionMessage(clientID, cluster string, alert, ongoing bool, verdicts []check.Verdict, ts time.Time) Message {
@@ -67,7 +94,7 @@ func buildTransitionMessage(clientID, cluster string, alert, ongoing bool, verdi
 	return m
 }
 
-// ComposeText encodes SPEC fields into the plain-text Slack payload.
+// ComposeText encodes SPEC fields into a plain-text fallback body.
 func ComposeText(m Message) string {
 	ts := m.Timestamp.UTC().Format(time.RFC3339)
 	var b strings.Builder
@@ -80,6 +107,35 @@ func ComposeText(m Message) string {
 	fmt.Fprintf(&b, "level=%s color=%s client.id=%s cluster=%s ts=%s",
 		m.Level, m.Color, m.ClientID, m.Cluster, ts)
 	return b.String()
+}
+
+// ComposeSlackText builds Incoming Webhook attachment mrkdwn (structured fields).
+func ComposeSlackText(m Message) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "*%s*\n", m.Title)
+	fmt.Fprintf(&b, "• *Cluster:* `%s`\n", emptyDash(m.Cluster))
+	fmt.Fprintf(&b, "• *Client:* `%s`\n", emptyDash(m.ClientID))
+	fmt.Fprintf(&b, "• *Time:* `%s`\n", m.Timestamp.UTC().Format("2006-01-02 15:04:05 UTC"))
+	if m.Body != "" {
+		b.WriteString("\n*Details:*\n")
+		b.WriteString(m.Body)
+	}
+	return b.String()
+}
+
+// AttachmentTitle is the short Slack attachment header (color bar companion).
+func AttachmentTitle(m Message) string {
+	if m.Level == LevelAlert {
+		return "❌ Alert"
+	}
+	return "✅ Success"
+}
+
+func emptyDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 func alertTitle(verdicts []check.Verdict, ongoing bool) string {
@@ -101,8 +157,12 @@ func formatVerdictBody(verdicts []check.Verdict) string {
 	}
 	lines := make([]string, 0, len(verdicts))
 	for _, v := range verdicts {
+		mark := "❌"
+		if v.Status == check.Ready {
+			mark = "✅"
+		}
 		status := strings.ToUpper(string(v.Status))
-		line := fmt.Sprintf("- %s: %s", v.Ref.String(), status)
+		line := fmt.Sprintf("• %s *%s*: %s", mark, v.Ref.String(), status)
 		if v.Reason != "" {
 			line += " (" + v.Reason + ")"
 		}

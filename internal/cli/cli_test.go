@@ -86,9 +86,32 @@ resources:
 	}
 }
 
-func TestNotifyTestNotAvailableInV0(t *testing.T) {
+func TestNotifyTestRequiresSinks(t *testing.T) {
+	cfgPath := writeConfig(t, `
+cluster:
+  name: test-cluster
+resources:
+  - deployment.default/app
+`)
 	root := NewRootCmd()
-	if _, _, err := runCmd(t, root, "notify", "test"); err == nil {
-		t.Fatal("notify test should not be available in v0.1")
+	if _, _, err := runCmd(t, root, "notify", "test", "--config", cfgPath); err == nil {
+		t.Fatal("notify test with no sinks should fail")
+	}
+}
+
+func TestNotifyTestFailClosedMissingWebhook(t *testing.T) {
+	cfgPath := writeConfig(t, `
+cluster:
+  name: test-cluster
+resources:
+  - deployment.default/app
+notifications:
+  sinks:
+    - type: slack
+`)
+	t.Setenv("KWD_SLACK_WEBHOOK", "")
+	root := NewRootCmd()
+	if _, _, err := runCmd(t, root, "notify", "test", "--config", cfgPath); err == nil {
+		t.Fatal("notify test without webhook should fail-closed")
 	}
 }

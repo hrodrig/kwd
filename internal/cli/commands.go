@@ -28,6 +28,7 @@ var (
 	confirmAlertFlag      int
 	confirmOkFlag         int
 	repeatWhileFiringFlag bool
+	forceNotificationFlag bool
 )
 
 // Execute runs the root command and returns any error (mapped to an exit code
@@ -95,6 +96,9 @@ func NewRootCmd() *cobra.Command {
 	}
 	if checkCommand.Flags().Lookup("repeat-while-firing") == nil {
 		checkCommand.Flags().BoolVar(&repeatWhileFiringFlag, "repeat-while-firing", false, "re-notify unhealthy every completed gap while firing")
+	}
+	if checkCommand.Flags().Lookup("force-notification") == nil {
+		checkCommand.Flags().BoolVar(&forceNotificationFlag, "force-notification", false, "single-pass: always notify (scheduled healthy reports)")
 	}
 
 	root.AddCommand(checkCommand)
