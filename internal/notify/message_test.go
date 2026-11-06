@@ -203,6 +203,30 @@ func TestBuildReportAndTestMessages(t *testing.T) {
 	}
 }
 
+func TestBuildTestMessageZeroTime(t *testing.T) {
+	before := time.Now().UTC().Add(-time.Second)
+	m := BuildTestMessage("cid", "cl", time.Time{})
+	after := time.Now().UTC().Add(time.Second)
+	if m.Timestamp.Before(before) || m.Timestamp.After(after) {
+		t.Fatalf("Timestamp = %v, want ~now", m.Timestamp)
+	}
+	if m.Title != "HEALTH CHECK: notify test" {
+		t.Fatalf("Title = %q", m.Title)
+	}
+}
+
+func TestBuildTransitionMessageZeroTime(t *testing.T) {
+	before := time.Now().UTC().Add(-time.Second)
+	m := BuildTransitionMessage("cid", "cl", false, nil, time.Time{})
+	after := time.Now().UTC().Add(time.Second)
+	if m.Timestamp.Before(before) || m.Timestamp.After(after) {
+		t.Fatalf("Timestamp = %v, want ~now", m.Timestamp)
+	}
+	if m.Title != "HEALTH CHECK: All resources ready" {
+		t.Fatalf("Title = %q", m.Title)
+	}
+}
+
 func TestComposeSlackTextStructured(t *testing.T) {
 	m := Message{
 		ClientID:  "me",
@@ -234,6 +258,7 @@ func TestNamespacesFromVerdictsMulti(t *testing.T) {
 		{Ref: check.Ref{Kind: "deployment", Namespace: "b", Name: "x"}},
 		{Ref: check.Ref{Kind: "deployment", Namespace: "a", Name: "y"}},
 		{Ref: check.Ref{Kind: "statefulset", Namespace: "a", Name: "z"}},
+		{Ref: check.Ref{Kind: "deployment", Namespace: "", Name: "cluster-scoped"}},
 	})
 	if got != "a, b" {
 		t.Fatalf("namespaces = %q, want a, b", got)
