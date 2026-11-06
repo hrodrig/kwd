@@ -392,7 +392,7 @@ hysteresis), **or** via `kwd notify test`. Each payload carries a `color`/level
 status, a UTC timestamp, plus resolved `client.id` and cluster metadata.
 
 **`--force-notification`:** single-pass only. When every resource is ready, sends
-a **report** (`kwd report: all resources ready`, level OK). When any resource is
+a **report** (`HEALTH CHECK: All resources ready`, level OK). When any resource is
 not ready, sends the normal **alert**. Ignored in daemon mode (`interval > 0`)
 with a stderr warning. Exit code still reflects readiness (`0`/`1`), not delivery.
 `dry_run: true` suppresses FanOut even when the flag is set.
@@ -402,10 +402,14 @@ senders as `check`); no Kubernetes API contact. Fail-closed if sinks are missing
 or credentials are unset.
 
 **Slack encoding:** Incoming Webhook JSON with `attachments: [{ color, title,
-text, footer, ts }]`. Attachment `title` is `✅ Success` or `❌ Alert`; `text` is
-mrkdwn with Cluster / Client / Time fields and a Details list (`✅` / `❌` per
-resource). Plain `ComposeText` remains available as a fallback composition for
-tests and future non-Slack sinks.
+text, footer, ts }]`. Attachment `title` is `✅ Success` or `❌ Error`; `text` is
+mrkdwn with a headline (`HEALTH CHECK: …` when healthy / test, `EMERGENCY: …`
+when unhealthy), Cluster / Client / Time fields, plus Namespace (unique
+namespaces from the checked refs, omitted when empty), Status
+(`ALL RESOURCES READY` / `RESOURCES MAY BE INCONSISTENT` / `NOTIFY TEST`), and
+Action Required (`NONE` / `IMMEDIATE ATTENTION NEEDED`), then a Details list
+(`✅` / `❌` per resource). Plain `ComposeText` remains available as a fallback
+composition for tests and future non-Slack sinks.
 
 In the daemon shape, the readiness table is printed on the same transition
 moments (not every tick). When `repeat_while_firing` is `true`, the unhealthy

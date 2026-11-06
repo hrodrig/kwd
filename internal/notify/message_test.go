@@ -19,14 +19,15 @@ func TestMessageAlertFields(t *testing.T) {
 		{Ref: check.Ref{Kind: "statefulset", Namespace: "default", Name: "db"}, Status: check.Ready, Reason: "1/1"},
 	}
 	m := BuildTransitionMessage("bastion-1", "prod-cluster", true, verdicts, ts)
-	if m.Level != LevelAlert {
-		t.Fatalf("Level = %q, want %q", m.Level, LevelAlert)
-	}
-	if m.Color != ColorAlert {
-		t.Fatalf("Color = %q, want %q", m.Color, ColorAlert)
-	}
-	if m.Title == "" || !strings.Contains(strings.ToLower(m.Title), "not ready") {
-		t.Fatalf("Title = %q, want alert title", m.Title)
+	assertEq(t, "Level", m.Level, LevelAlert)
+	assertEq(t, "Color", m.Color, ColorAlert)
+	assertEq(t, "Namespace", m.Namespace, "default")
+	assertEq(t, "Status", m.Status, statusInconsistent)
+	assertEq(t, "Action", m.Action, actionImmediate)
+	assertEq(t, "ClientID", m.ClientID, "bastion-1")
+	assertEq(t, "Cluster", m.Cluster, "prod-cluster")
+	if !strings.Contains(m.Title, "EMERGENCY") || !strings.Contains(strings.ToLower(m.Title), "not ready") {
+		t.Fatalf("Title = %q, want EMERGENCY … not ready", m.Title)
 	}
 	if !strings.Contains(m.Body, "deployment.default/app") || !strings.Contains(m.Body, "statefulset.default/db") {
 		t.Fatalf("Body missing per-resource status: %q", m.Body)
@@ -34,11 +35,15 @@ func TestMessageAlertFields(t *testing.T) {
 	if !m.Timestamp.Equal(ts) {
 		t.Fatalf("Timestamp = %v, want %v", m.Timestamp, ts)
 	}
-	if m.ClientID != "bastion-1" || m.Cluster != "prod-cluster" {
-		t.Fatalf("ClientID/Cluster = %q/%q", m.ClientID, m.Cluster)
-	}
 	if m.Text == "" || !strings.Contains(m.Text, m.Title) {
 		t.Fatalf("Text should be composed from SPEC fields: %q", m.Text)
+	}
+}
+
+func assertEq(t *testing.T, field, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s = %q, want %q", field, got, want)
 	}
 }
 
@@ -54,11 +59,14 @@ func TestMessageResolutionFields(t *testing.T) {
 	if m.Color != ColorOK {
 		t.Fatalf("Color = %q, want %q", m.Color, ColorOK)
 	}
-	if !strings.Contains(strings.ToLower(m.Title), "ready") {
-		t.Fatalf("Title = %q, want resolution title", m.Title)
+	if m.Title != "HEALTH CHECK: All resources ready" {
+		t.Fatalf("Title = %q, want HEALTH CHECK ready headline", m.Title)
 	}
 	if strings.Contains(m.Title, "ongoing") {
 		t.Fatalf("resolve title must not mark ongoing: %q", m.Title)
+	}
+	if m.Status != statusAllReady || m.Action != actionNone {
+		t.Fatalf("Status/Action = %q/%q", m.Status, m.Action)
 	}
 	if !strings.Contains(m.Body, "deployment.default/app") {
 		t.Fatalf("Body = %q", m.Body)
@@ -77,8 +85,8 @@ func TestMessageRepeatOngoingTitle(t *testing.T) {
 	if m.Level != LevelAlert {
 		t.Fatalf("Level = %q, want alert", m.Level)
 	}
-	if !strings.Contains(m.Title, "ALERT (ongoing)") {
-		t.Fatalf("Title = %q, want ALERT (ongoing) marker (D-16)", m.Title)
+	if !strings.Contains(m.Title, "EMERGENCY (ongoing)") {
+		t.Fatalf("Title = %q, want EMERGENCY (ongoing) marker (D-16)", m.Title)
 	}
 	alert := BuildTransitionMessage("cid", "cl", true, verdicts, ts)
 	if strings.Contains(alert.Title, "ongoing") {
@@ -142,7 +150,7 @@ func TestSlackSendUsesAttachment(t *testing.T) {
 	if att.Color != ColorAlert {
 		t.Fatalf("color = %q, want %q", att.Color, ColorAlert)
 	}
-	if att.Title != "❌ Alert" {
+	if att.Title != "❌ Error" {
 		t.Fatalf("title = %q", att.Title)
 	}
 	if att.Footer != "kwd" {
@@ -151,7 +159,10 @@ func TestSlackSendUsesAttachment(t *testing.T) {
 	if att.Ts != ts.Unix() {
 		t.Fatalf("ts = %d, want %d", att.Ts, ts.Unix())
 	}
-	for _, want := range []string{"Cluster", "Client", "cid", "cl", "Details", "deployment.ns/x"} {
+	for _, want := range []string{
+		"Cluster", "Client", "cid", "cl", "Details", "deployment.ns/x",
+		"Namespace", "`ns`", "Status", statusInconsistent, "Action Required", actionImmediate,
+	} {
 		if !strings.Contains(att.Text, want) {
 			t.Fatalf("attachment text missing %q: %q", want, att.Text)
 		}
@@ -167,16 +178,25 @@ func TestBuildReportAndTestMessages(t *testing.T) {
 	if report.Level != LevelOK || report.Color != ColorOK {
 		t.Fatalf("report level/color = %s/%s", report.Level, report.Color)
 	}
-	if !strings.Contains(report.Title, "report") {
+	if report.Title != "HEALTH CHECK: All resources ready" {
 		t.Fatalf("report title = %q", report.Title)
+	}
+	if report.Status != statusAllReady || report.Action != actionNone {
+		t.Fatalf("report Status/Action = %q/%q", report.Status, report.Action)
 	}
 	if AttachmentTitle(report) != "✅ Success" {
 		t.Fatalf("attachment title = %q", AttachmentTitle(report))
 	}
 
 	testMsg := BuildTestMessage("cid", "cl", ts)
-	if testMsg.Title != "kwd notify test" {
+	if testMsg.Title != "HEALTH CHECK: notify test" {
 		t.Fatalf("test title = %q", testMsg.Title)
+	}
+	if testMsg.Status != statusNotifyTest || testMsg.Action != actionNone {
+		t.Fatalf("test Status/Action = %q/%q", testMsg.Status, testMsg.Action)
+	}
+	if testMsg.Namespace != "" {
+		t.Fatalf("test Namespace = %q, want empty", testMsg.Namespace)
 	}
 	if !strings.Contains(testMsg.Body, "synthetic") {
 		t.Fatalf("test body = %q", testMsg.Body)
@@ -187,16 +207,35 @@ func TestComposeSlackTextStructured(t *testing.T) {
 	m := Message{
 		ClientID:  "me",
 		Cluster:   "cl",
+		Namespace: "default",
+		Status:    statusInconsistent,
+		Action:    actionImmediate,
 		Level:     LevelAlert,
 		Color:     ColorAlert,
-		Title:     "kwd: 1 resource(s) not ready",
+		Title:     "EMERGENCY: 1 resource(s) not ready",
 		Body:      "• ❌ *deployment.default/app*: NOT-READY",
 		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
 	text := ComposeSlackText(m)
-	for _, want := range []string{"*Cluster:*", "`cl`", "*Client:*", "`me`", "Details", "deployment.default/app"} {
+	for _, want := range []string{
+		"*Cluster:*", "`cl`", "*Client:*", "`me`",
+		"*Namespace:*", "`default`", "*Status:*", statusInconsistent,
+		"*Action Required:*", actionImmediate,
+		"Details", "deployment.default/app", "EMERGENCY",
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ComposeSlackText missing %q in %q", want, text)
 		}
+	}
+}
+
+func TestNamespacesFromVerdictsMulti(t *testing.T) {
+	got := namespacesFromVerdicts([]check.Verdict{
+		{Ref: check.Ref{Kind: "deployment", Namespace: "b", Name: "x"}},
+		{Ref: check.Ref{Kind: "deployment", Namespace: "a", Name: "y"}},
+		{Ref: check.Ref{Kind: "statefulset", Namespace: "a", Name: "z"}},
+	})
+	if got != "a, b" {
+		t.Fatalf("namespaces = %q, want a, b", got)
 	}
 }

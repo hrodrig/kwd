@@ -13,9 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `--force-notification` on `kwd check` (single-pass): always FanOut after the pass, including healthy digests (`kwd report: …`); ignored in daemon mode with a stderr warning (#24).
+- `--force-notification` on `kwd check` (single-pass): always FanOut after the pass, including healthy digests (`HEALTH CHECK: All resources ready`); ignored in daemon mode with a stderr warning (#24).
 - `kwd notify test`: synthetic FanOut to all configured sinks without cluster contact (#25).
 - Slack Incoming Webhook **attachments** (color bar, structured mrkdwn fields, `✅`/`❌` details) instead of plain `{"text":…}` (#26).
+
+### Changed
+
+- Slack attachment mrkdwn: `HEALTH CHECK: …` (healthy/test) and `EMERGENCY: …` (unhealthy) headlines; attachment title `❌ Error` on alert; optional Namespace (from checked refs); Status (`ALL RESOURCES READY` / `RESOURCES MAY BE INCONSISTENT` / `NOTIFY TEST`) and Action Required (`NONE` / `IMMEDIATE ATTENTION NEEDED`).
 
 ### Security
 
