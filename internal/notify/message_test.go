@@ -104,7 +104,7 @@ func TestComposeTextIncludesSPECFields(t *testing.T) {
 	}
 }
 
-func TestSlackSendUsesComposedText(t *testing.T) {
+func TestSlackSendUsesAttachment(t *testing.T) {
 	var gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b := make([]byte, r.ContentLength)
@@ -114,22 +114,89 @@ func TestSlackSendUsesComposedText(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	ts := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
 	m := BuildTransitionMessage("cid", "cl", true, []check.Verdict{
 		{Ref: check.Ref{Kind: "deployment", Namespace: "ns", Name: "x"}, Status: check.NotReady},
-	}, time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC))
+	}, ts)
 
 	s := &Slack{WebhookURL: srv.URL, Client: srv.Client()}
 	if err := s.Send(context.Background(), m); err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	var payload map[string]string
+	var payload struct {
+		Attachments []struct {
+			Color  string `json:"color"`
+			Title  string `json:"title"`
+			Text   string `json:"text"`
+			Footer string `json:"footer"`
+			Ts     int64  `json:"ts"`
+		} `json:"attachments"`
+	}
 	if err := json.Unmarshal([]byte(gotBody), &payload); err != nil {
 		t.Fatalf("slack JSON: %v body=%q", err, gotBody)
 	}
-	if payload["text"] != m.Text {
-		t.Fatalf("text field = %q, want composed Text %q", payload["text"], m.Text)
+	if len(payload.Attachments) != 1 {
+		t.Fatalf("attachments len = %d, want 1; body=%q", len(payload.Attachments), gotBody)
 	}
-	if strings.Contains(gotBody, "attachments") {
-		t.Fatal("Slack must stay plain {\"text\":...} (no attachments)")
+	att := payload.Attachments[0]
+	if att.Color != ColorAlert {
+		t.Fatalf("color = %q, want %q", att.Color, ColorAlert)
+	}
+	if att.Title != "❌ Alert" {
+		t.Fatalf("title = %q", att.Title)
+	}
+	if att.Footer != "kwd" {
+		t.Fatalf("footer = %q", att.Footer)
+	}
+	if att.Ts != ts.Unix() {
+		t.Fatalf("ts = %d, want %d", att.Ts, ts.Unix())
+	}
+	for _, want := range []string{"Cluster", "Client", "cid", "cl", "Details", "deployment.ns/x"} {
+		if !strings.Contains(att.Text, want) {
+			t.Fatalf("attachment text missing %q: %q", want, att.Text)
+		}
+	}
+}
+
+func TestBuildReportAndTestMessages(t *testing.T) {
+	ts := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	verdicts := []check.Verdict{
+		{Ref: check.Ref{Kind: "deployment", Namespace: "default", Name: "app"}, Status: check.Ready, Reason: "1/1"},
+	}
+	report := BuildReportMessage("cid", "cl", verdicts, ts)
+	if report.Level != LevelOK || report.Color != ColorOK {
+		t.Fatalf("report level/color = %s/%s", report.Level, report.Color)
+	}
+	if !strings.Contains(report.Title, "report") {
+		t.Fatalf("report title = %q", report.Title)
+	}
+	if AttachmentTitle(report) != "✅ Success" {
+		t.Fatalf("attachment title = %q", AttachmentTitle(report))
+	}
+
+	testMsg := BuildTestMessage("cid", "cl", ts)
+	if testMsg.Title != "kwd notify test" {
+		t.Fatalf("test title = %q", testMsg.Title)
+	}
+	if !strings.Contains(testMsg.Body, "synthetic") {
+		t.Fatalf("test body = %q", testMsg.Body)
+	}
+}
+
+func TestComposeSlackTextStructured(t *testing.T) {
+	m := Message{
+		ClientID:  "me",
+		Cluster:   "cl",
+		Level:     LevelAlert,
+		Color:     ColorAlert,
+		Title:     "kwd: 1 resource(s) not ready",
+		Body:      "• ❌ *deployment.default/app*: NOT-READY",
+		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+	}
+	text := ComposeSlackText(m)
+	for _, want := range []string{"*Cluster:*", "`cl`", "*Client:*", "`me`", "Details", "deployment.default/app"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("ComposeSlackText missing %q in %q", want, text)
+		}
 	}
 }

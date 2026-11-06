@@ -23,7 +23,7 @@ type Sender interface {
 	Type() string
 }
 
-// Slack sends via Incoming Webhook (plain text).
+// Slack sends via Incoming Webhook (colored attachment + mrkdwn body).
 type Slack struct {
 	WebhookURL string
 	Client     *http.Client
@@ -31,8 +31,29 @@ type Slack struct {
 
 func (s *Slack) Type() string { return TypeSlack }
 
+type slackAttachment struct {
+	Color  string `json:"color"`
+	Title  string `json:"title"`
+	Text   string `json:"text"`
+	Footer string `json:"footer"`
+	Ts     int64  `json:"ts"`
+}
+
+type slackPayload struct {
+	Attachments []slackAttachment `json:"attachments"`
+}
+
 func (s *Slack) Send(ctx context.Context, m Message) error {
-	raw, err := json.Marshal(map[string]string{"text": m.Text})
+	payload := slackPayload{
+		Attachments: []slackAttachment{{
+			Color:  m.Color,
+			Title:  AttachmentTitle(m),
+			Text:   ComposeSlackText(m),
+			Footer: "kwd",
+			Ts:     m.Timestamp.UTC().Unix(),
+		}},
+	}
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("slack payload: %w", err)
 	}

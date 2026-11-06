@@ -160,6 +160,90 @@ func TestCheckWithClientFailClosedMissingWebhook(t *testing.T) {
 	}
 }
 
+func TestCheckForceNotificationHealthySendsReport(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources:         []string{"deployment.default/app"},
+		ForceNotification: true,
+		Notifications: &config.Notifications{
+			Sinks: []config.Sink{{Type: "slack"}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	_ = checkWithClient(context.Background(), &out, &errOut, cfg, cs)
+	if !bytes.Contains(errOut.Bytes(), []byte("fail-closed")) {
+		t.Fatalf("force healthy without webhook should fail-closed notify: %q", errOut.String())
+	}
+}
+
+func TestCheckHealthyWithoutForceDoesNotNotify(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources: []string{"deployment.default/app"},
+		Notifications: &config.Notifications{
+			Sinks: []config.Sink{{Type: "slack"}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	if err := checkWithClient(context.Background(), &out, &errOut, cfg, cs); err != nil {
+		t.Fatalf("healthy check: %v", err)
+	}
+	if bytes.Contains(errOut.Bytes(), []byte("notify:")) {
+		t.Fatalf("healthy without force must not notify: %q", errOut.String())
+	}
+}
+
+func TestCheckForceNotificationDryRunSuppresses(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	cfg := &config.Config{
+		Resources:         []string{"deployment.default/app"},
+		ForceNotification: true,
+		DryRun:            true,
+		Notifications: &config.Notifications{
+			Sinks: []config.Sink{{Type: "slack"}},
+		},
+	}
+	var out, errOut bytes.Buffer
+	if err := checkWithClient(context.Background(), &out, &errOut, cfg, cs); err != nil {
+		t.Fatalf("dry-run force: %v", err)
+	}
+	if bytes.Contains(errOut.Bytes(), []byte("notify:")) {
+		t.Fatalf("dry-run must mute force notify: %q", errOut.String())
+	}
+}
+
+func TestDaemonForceNotificationWarnsIgnored(t *testing.T) {
+	cs := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32p(1)},
+		Status:     appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Daemon returns immediately on canceled ctx
+	cfg := &config.Config{
+		Resources:         []string{"deployment.default/app"},
+		Interval:          60,
+		ForceNotification: true,
+	}
+	var out, errOut bytes.Buffer
+	_ = checkWithClient(ctx, &out, &errOut, cfg, cs)
+	if !bytes.Contains(errOut.Bytes(), []byte("force-notification ignored")) {
+		t.Fatalf("daemon should warn force ignored: %q", errOut.String())
+	}
+}
+
 func TestSendNotificationNilNotifications(t *testing.T) {
 	cfg := &config.Config{} // nil Notifications
 	if err := sendNotification(context.Background(), cfg, "cid", nil); err != nil {

@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--force-notification` on `kwd check` (single-pass): always FanOut after the pass, including healthy digests (`kwd report: …`); ignored in daemon mode with a stderr warning (#24).
+- `kwd notify test`: synthetic FanOut to all configured sinks without cluster contact (#25).
+- Slack Incoming Webhook **attachments** (color bar, structured mrkdwn fields, `✅`/`❌` details) instead of plain `{"text":…}` (#26).
+
+### Security
+
+- Bump `golang.org/x/net` to **v0.62.0** (and `x/text` to **v0.43.0**) for GO-2026-6860; raise `dependency-pins.txt` floors.
+
 [↑ Back to top](#top)
 
 ## [0.3.0] - 2026-11-02

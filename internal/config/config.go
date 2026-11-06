@@ -29,6 +29,9 @@ type Config struct {
 	LogFormat string `yaml:"log_format" mapstructure:"log_format"`
 	// DryRun prints the verdict without sending notifications.
 	DryRun bool `yaml:"dry_run" mapstructure:"dry_run"`
+	// ForceNotification always notifies on single-pass (CLI --force-notification).
+	// Not a YAML key; set from the check flag only.
+	ForceNotification bool `yaml:"-" mapstructure:"-"`
 	// Notifications configures sinks; a nil Sinks means notifications disabled.
 	Notifications *Notifications `yaml:"notifications" mapstructure:"notifications"`
 	// HTTP is the optional daemon observability surface (listen empty = off).
