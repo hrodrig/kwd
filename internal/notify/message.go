@@ -2,6 +2,7 @@ package notify
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,12 +15,21 @@ const (
 	LevelOK    = "ok"
 	ColorAlert = "#E01E5A" // red — unhealthy
 	ColorOK    = "#36a64f" // green — healthy
+
+	statusAllReady     = "ALL RESOURCES READY"
+	statusInconsistent = "RESOURCES MAY BE INCONSISTENT"
+	statusNotifyTest   = "NOTIFY TEST"
+	actionNone         = "NONE"
+	actionImmediate    = "IMMEDIATE ATTENTION NEEDED"
 )
 
 // Message is the notification payload (SPEC §8 + client/cluster metadata).
 type Message struct {
 	ClientID  string
 	Cluster   string
+	Namespace string
+	Status    string
+	Action    string
 	Level     string
 	Color     string
 	Title     string
@@ -35,7 +45,7 @@ func BuildTransitionMessage(clientID, cluster string, alert bool, verdicts []che
 	return buildTransitionMessage(clientID, cluster, alert, false, verdicts, ts)
 }
 
-// BuildRepeatMessage builds an ongoing unhealthy alert (D-16: ALERT (ongoing)).
+// BuildRepeatMessage builds an ongoing unhealthy alert (D-16: EMERGENCY (ongoing)).
 // Resolve titles are unchanged — use BuildTransitionMessage(..., false, ...).
 func BuildRepeatMessage(clientID, cluster string, verdicts []check.Verdict, ts time.Time) Message {
 	return buildTransitionMessage(clientID, cluster, true, true, verdicts, ts)
@@ -44,7 +54,7 @@ func BuildRepeatMessage(clientID, cluster string, verdicts []check.Verdict, ts t
 // BuildReportMessage builds a scheduled healthy digest (--force-notification).
 func BuildReportMessage(clientID, cluster string, verdicts []check.Verdict, ts time.Time) Message {
 	m := buildTransitionMessage(clientID, cluster, false, false, verdicts, ts)
-	m.Title = "kwd report: all resources ready"
+	m.Title = "HEALTH CHECK: All resources ready"
 	m.Text = ComposeText(m)
 	return m
 }
@@ -59,9 +69,11 @@ func BuildTestMessage(clientID, cluster string, ts time.Time) Message {
 	m := Message{
 		ClientID:  clientID,
 		Cluster:   cluster,
+		Status:    statusNotifyTest,
+		Action:    actionNone,
 		Level:     LevelOK,
 		Color:     ColorOK,
-		Title:     "kwd notify test",
+		Title:     "HEALTH CHECK: notify test",
 		Body:      "• synthetic test — no readiness check ran",
 		Timestamp: ts,
 	}
@@ -78,17 +90,22 @@ func buildTransitionMessage(clientID, cluster string, alert, ongoing bool, verdi
 	m := Message{
 		ClientID:  clientID,
 		Cluster:   cluster,
+		Namespace: namespacesFromVerdicts(verdicts),
 		Body:      formatVerdictBody(verdicts),
 		Timestamp: ts,
 	}
 	if alert {
 		m.Level = LevelAlert
 		m.Color = ColorAlert
+		m.Status = statusInconsistent
+		m.Action = actionImmediate
 		m.Title = alertTitle(verdicts, ongoing)
 	} else {
 		m.Level = LevelOK
 		m.Color = ColorOK
-		m.Title = "kwd: all resources ready"
+		m.Status = statusAllReady
+		m.Action = actionNone
+		m.Title = "HEALTH CHECK: All resources ready"
 	}
 	m.Text = ComposeText(m)
 	return m
@@ -116,6 +133,15 @@ func ComposeSlackText(m Message) string {
 	fmt.Fprintf(&b, "• *Cluster:* `%s`\n", emptyDash(m.Cluster))
 	fmt.Fprintf(&b, "• *Client:* `%s`\n", emptyDash(m.ClientID))
 	fmt.Fprintf(&b, "• *Time:* `%s`\n", m.Timestamp.UTC().Format("2006-01-02 15:04:05 UTC"))
+	if m.Namespace != "" {
+		fmt.Fprintf(&b, "• *Namespace:* `%s`\n", m.Namespace)
+	}
+	if m.Status != "" {
+		fmt.Fprintf(&b, "• *Status:* `%s`\n", m.Status)
+	}
+	if m.Action != "" {
+		fmt.Fprintf(&b, "• *Action Required:* `%s`\n", m.Action)
+	}
 	if m.Body != "" {
 		b.WriteString("\n*Details:*\n")
 		b.WriteString(m.Body)
@@ -126,7 +152,7 @@ func ComposeSlackText(m Message) string {
 // AttachmentTitle is the short Slack attachment header (color bar companion).
 func AttachmentTitle(m Message) string {
 	if m.Level == LevelAlert {
-		return "❌ Alert"
+		return "❌ Error"
 	}
 	return "✅ Success"
 }
@@ -146,9 +172,27 @@ func alertTitle(verdicts []check.Verdict, ongoing bool) string {
 		}
 	}
 	if ongoing {
-		return fmt.Sprintf("kwd ALERT (ongoing): %d resource(s) not ready", notReady)
+		return fmt.Sprintf("EMERGENCY (ongoing): %d resource(s) not ready", notReady)
 	}
-	return fmt.Sprintf("kwd: %d resource(s) not ready", notReady)
+	return fmt.Sprintf("EMERGENCY: %d resource(s) not ready", notReady)
+}
+
+func namespacesFromVerdicts(verdicts []check.Verdict) string {
+	seen := make(map[string]struct{}, len(verdicts))
+	var list []string
+	for _, v := range verdicts {
+		ns := v.Ref.Namespace
+		if ns == "" {
+			continue
+		}
+		if _, ok := seen[ns]; ok {
+			continue
+		}
+		seen[ns] = struct{}{}
+		list = append(list, ns)
+	}
+	sort.Strings(list)
+	return strings.Join(list, ", ")
 }
 
 func formatVerdictBody(verdicts []check.Verdict) string {
