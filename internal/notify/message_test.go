@@ -19,23 +19,15 @@ func TestMessageAlertFields(t *testing.T) {
 		{Ref: check.Ref{Kind: "statefulset", Namespace: "default", Name: "db"}, Status: check.Ready, Reason: "1/1"},
 	}
 	m := BuildTransitionMessage("bastion-1", "prod-cluster", true, verdicts, ts)
-	if m.Level != LevelAlert {
-		t.Fatalf("Level = %q, want %q", m.Level, LevelAlert)
-	}
-	if m.Color != ColorAlert {
-		t.Fatalf("Color = %q, want %q", m.Color, ColorAlert)
-	}
-	if m.Title == "" || !strings.Contains(strings.ToLower(m.Title), "not ready") {
-		t.Fatalf("Title = %q, want alert title", m.Title)
-	}
-	if !strings.Contains(m.Title, "EMERGENCY") {
-		t.Fatalf("Title = %q, want EMERGENCY headline", m.Title)
-	}
-	if m.Namespace != "default" {
-		t.Fatalf("Namespace = %q, want default", m.Namespace)
-	}
-	if m.Status != statusInconsistent || m.Action != actionImmediate {
-		t.Fatalf("Status/Action = %q/%q", m.Status, m.Action)
+	assertEq(t, "Level", m.Level, LevelAlert)
+	assertEq(t, "Color", m.Color, ColorAlert)
+	assertEq(t, "Namespace", m.Namespace, "default")
+	assertEq(t, "Status", m.Status, statusInconsistent)
+	assertEq(t, "Action", m.Action, actionImmediate)
+	assertEq(t, "ClientID", m.ClientID, "bastion-1")
+	assertEq(t, "Cluster", m.Cluster, "prod-cluster")
+	if !strings.Contains(m.Title, "EMERGENCY") || !strings.Contains(strings.ToLower(m.Title), "not ready") {
+		t.Fatalf("Title = %q, want EMERGENCY … not ready", m.Title)
 	}
 	if !strings.Contains(m.Body, "deployment.default/app") || !strings.Contains(m.Body, "statefulset.default/db") {
 		t.Fatalf("Body missing per-resource status: %q", m.Body)
@@ -43,11 +35,15 @@ func TestMessageAlertFields(t *testing.T) {
 	if !m.Timestamp.Equal(ts) {
 		t.Fatalf("Timestamp = %v, want %v", m.Timestamp, ts)
 	}
-	if m.ClientID != "bastion-1" || m.Cluster != "prod-cluster" {
-		t.Fatalf("ClientID/Cluster = %q/%q", m.ClientID, m.Cluster)
-	}
 	if m.Text == "" || !strings.Contains(m.Text, m.Title) {
 		t.Fatalf("Text should be composed from SPEC fields: %q", m.Text)
+	}
+}
+
+func assertEq(t *testing.T, field, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s = %q, want %q", field, got, want)
 	}
 }
 
