@@ -235,6 +235,8 @@ Contract details: [SPECIFICATIONS.md](SPECIFICATIONS.md) §§2, 8–9.
 | `/healthz` | `200`/`ok` or `503`/`unhealthy` from **raw** last completed tick |
 | `/metrics` | Prometheus text: `kwd_resource_ready`, `kwd_check_latency_seconds`, `kwd_last_tick_timestamp_seconds`, `kwd_healthy` |
 
+**Linux / CVE-2026-98432:** Go 1.24+ may request **MPTCP** on listen sockets by default. `kwd` disables Multipath TCP on the daemon HTTP listener (`ListenConfig.SetMultipathTCP(false)`). Prefer binding `http.listen` to loopback when scrapers allow. **Primary mitigation** remains a **patched Linux kernel** on hosts/nodes; optional belt-and-suspenders: `GODEBUG=multipathtcp=0` in the process environment (see [golang-announce](https://groups.google.com/g/golang-announce/c/PCoQcdxoScw)). Operator notes: [kwd-selfhosted](https://github.com/hrodrig/kwd-selfhosted).
+
 [↑ Back to top](#top)
 
 ---
