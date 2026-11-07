@@ -148,10 +148,12 @@ is given) — plus a small set of read-only helpers modeled on `kzero`.
 | `--version` | Print version and build metadata | — |
 
 `--show-sample-config`, `--version`, `analyze`, `target`, and `doctor` never
-send notifications. `--interval`, `--listen`, `--confirm-alert`, `--confirm-ok`,
-and `--repeat-while-firing` take effect only on `check`, and only when the flag
-is set (`Flags().Changed`). `http.health_path` and `http.metrics_path` are
-YAML-only in this version. Remaining YAML keys may gain CLI overrides later.
+send notifications (`notify test` is the deliberate exception). `--interval`,
+`--listen`, `--confirm-alert`, `--confirm-ok`, `--repeat-while-firing`, and
+`--force-notification` take effect only on `check`, and only when the flag is
+set (`Flags().Changed`) except `--force-notification` which is CLI-only (not a
+YAML key). `http.health_path` and `http.metrics_path` are YAML-only in this
+version. Remaining YAML keys may gain CLI overrides later.
 
 Exit codes:
 
@@ -319,7 +321,7 @@ that has not reached `Ready` within its retries and this ceiling is reported
 
 `color` controls ANSI coloring of the verdict and per-resource status lines:
 `auto` (color only when stdout is a TTY), `always`, `never`. It does not affect
-notifications or Loki payloads, which are always plain text.
+Slack attachment colors (those use Message `color` / level) or Loki payloads.
 
 ## 8. State and notifications
 
@@ -369,7 +371,7 @@ types:
 
 | Sink `type` | Payload / notes |
 |------------|-----------------|
-| `slack` | Slack Incoming Webhook, plain-text message. |
+| `slack` | Slack Incoming Webhook: colored **attachment** (`color`, `title`, mrkdwn `text`, `footer`, `ts`). Green (`#36a64f`) when healthy / test / report; red (`#E01E5A`) when alert. |
 | `webhook` | Generic JSON POST; `body` preset `generic` (default), `discord`, or `teams`. |
 | `loki` | Pushes one log line per notification with `labels`. |
 | `smtp` | Email via SMTP (`host`, `port`, auth, `from`, `to`, `use_tls`). |
@@ -383,16 +385,35 @@ fails closed with an error.
 
 ### When notifications fire
 
-A notification is emitted when `--force-notification` is set **or** on a state
-transition (unhealthy → or → healthy, per hysteresis). Each payload carries a
-`color`/level (green healthy, red unhealthy), a title, a text body listing each
-resource and its status, a UTC timestamp, plus resolved `client.id` and cluster
-metadata. The Slack Incoming Webhook sink encodes those fields into the plain
-JSON `text` field (`{"text":...}`); richer attachment JSON is optional polish.
+A notification is emitted when `--force-notification` is set on a **single-pass**
+check (`interval: 0`) **or** on a state transition (unhealthy ↔ healthy, per
+hysteresis), **or** via `kwd notify test`. Each payload carries a `color`/level
+(green healthy, red unhealthy), a title, a body listing each resource and its
+status, a UTC timestamp, plus resolved `client.id` and cluster metadata.
+
+**`--force-notification`:** single-pass only. When every resource is ready, sends
+a **report** (`HEALTH CHECK: All resources ready`, level OK). When any resource is
+not ready, sends the normal **alert**. Ignored in daemon mode (`interval > 0`)
+with a stderr warning. Exit code still reflects readiness (`0`/`1`), not delivery.
+`dry_run: true` suppresses FanOut even when the flag is set.
+
+**`kwd notify test`:** synthetic message to every configured sink (same FanOut /
+senders as `check`); no Kubernetes API contact. Fail-closed if sinks are missing
+or credentials are unset.
+
+**Slack encoding:** Incoming Webhook JSON with `attachments: [{ color, title,
+text, footer, ts }]`. Attachment `title` is `✅ Success` or `❌ Error`; `text` is
+mrkdwn with a headline (`HEALTH CHECK: …` when healthy / test, `EMERGENCY: …`
+when unhealthy), Cluster / Client / Time fields, plus Namespace (unique
+namespaces from the checked refs, omitted when empty), Status
+(`ALL RESOURCES READY` / `RESOURCES MAY BE INCONSISTENT` / `NOTIFY TEST`), and
+Action Required (`NONE` / `IMMEDIATE ATTENTION NEEDED`), then a Details list
+(`✅` / `❌` per resource). Plain `ComposeText` remains available as a fallback
+composition for tests and future non-Slack sinks.
+
 In the daemon shape, the readiness table is printed on the same transition
 moments (not every tick). When `repeat_while_firing` is `true`, the unhealthy
-notification is re-sent every `interval` while the bad state persists
-(Phase 3).
+notification is re-sent every `interval` while the bad state persists.
 
 ## 9. HTTP surface (daemon shape)
 

@@ -58,6 +58,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("repeat-while-firing") {
 		cfg.RepeatWhileFiring = repeatWhileFiringFlag
 	}
+	if cmd.Flags().Changed("force-notification") {
+		cfg.ForceNotification = forceNotificationFlag
+	}
 
 	restCfg, err := cluster.LoadRESTConfig("", cfg.Kube.Context)
 	if err != nil {
@@ -90,60 +93,78 @@ func checkWithClient(ctx context.Context, out, errOut io.Writer, cfg *config.Con
 	clientID := identity.Resolve(cfg.Client.ID)
 	eng := engine.New(cfg, cs, check.NewRegistry())
 
-	if cfg.Interval > 0 {
-		var httpSrv *http.Server
-		// D-17/D-18: HTTP only when listen non-empty; fail-fast bind before Daemon.
-		if cfg.HTTP.Listen != "" {
-			ln, err := engine.ListenTCP(cfg.HTTP.Listen)
-			if err != nil {
-				return exitcode.New(exitcode.Failure, fmt.Errorf("http listen: %w", err))
-			}
-			httpSrv = engine.NewHTTPServer(eng.Snapshot(), cfg.HTTP.HealthPath, cfg.HTTP.MetricsPath)
-			engine.ServeHTTP(ln, httpSrv)
-		}
-		err := eng.Daemon(ctx, engine.DaemonOptions{
-			OnTick: func(verdicts []check.Verdict, action engine.NotifyAction) {
-				writeTickLog(errOut, cfg, verdicts, action)
-				// Table on Alert / Resolve / Repeat (D-15); not on NotifyNone.
-				if action != engine.NotifyNone {
-					report.WriteTable(out, verdicts)
-				}
-			},
-			OnNotify: func(ctx context.Context, action engine.NotifyAction, verdicts []check.Verdict) error {
-				if cfg.DryRun {
-					return nil
-				}
-				// Finish in-flight notify after signal; never start if parent done.
-				if ctx.Err() != nil {
-					return nil
-				}
-				notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifySendTimeout)
-				defer cancel()
-				if err := sendNotifyAction(notifyCtx, cfg, clientID, action, verdicts); err != nil {
-					_, _ = fmt.Fprintln(errOut, "notify:", err)
-				}
-				return nil
-			},
-		})
-		// D-19: shared NotifyContext cancel → short Shutdown; Daemon nil → exit 0.
-		_ = engine.ShutdownHTTP(httpSrv)
-		return err
+	if cfg.ForceNotification && cfg.Interval > 0 {
+		_, _ = fmt.Fprintln(errOut, "kwd: --force-notification ignored in daemon mode (interval > 0)")
 	}
+	if cfg.Interval > 0 {
+		return runDaemonCheck(ctx, out, errOut, cfg, eng, clientID)
+	}
+	return runSinglePassCheck(ctx, out, errOut, cfg, eng, clientID)
+}
 
+func runDaemonCheck(ctx context.Context, out, errOut io.Writer, cfg *config.Config, eng *engine.Engine, clientID string) error {
+	var httpSrv *http.Server
+	// D-17/D-18: HTTP only when listen non-empty; fail-fast bind before Daemon.
+	if cfg.HTTP.Listen != "" {
+		ln, err := engine.ListenTCP(cfg.HTTP.Listen)
+		if err != nil {
+			return exitcode.New(exitcode.Failure, fmt.Errorf("http listen: %w", err))
+		}
+		httpSrv = engine.NewHTTPServer(eng.Snapshot(), cfg.HTTP.HealthPath, cfg.HTTP.MetricsPath)
+		engine.ServeHTTP(ln, httpSrv)
+	}
+	err := eng.Daemon(ctx, engine.DaemonOptions{
+		OnTick: func(verdicts []check.Verdict, action engine.NotifyAction) {
+			writeTickLog(errOut, cfg, verdicts, action)
+			// Table on Alert / Resolve / Repeat (D-15); not on NotifyNone.
+			if action != engine.NotifyNone {
+				report.WriteTable(out, verdicts)
+			}
+		},
+		OnNotify: func(ctx context.Context, action engine.NotifyAction, verdicts []check.Verdict) error {
+			return daemonOnNotify(ctx, errOut, cfg, clientID, action, verdicts)
+		},
+	})
+	// D-19: shared NotifyContext cancel → short Shutdown; Daemon nil → exit 0.
+	_ = engine.ShutdownHTTP(httpSrv)
+	return err
+}
+
+func daemonOnNotify(ctx context.Context, errOut io.Writer, cfg *config.Config, clientID string, action engine.NotifyAction, verdicts []check.Verdict) error {
+	if cfg.DryRun || ctx.Err() != nil {
+		return nil
+	}
+	// Finish in-flight notify after signal; never start if parent done.
+	notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifySendTimeout)
+	defer cancel()
+	if err := sendNotifyAction(notifyCtx, cfg, clientID, action, verdicts); err != nil {
+		_, _ = fmt.Fprintln(errOut, "notify:", err)
+	}
+	return nil
+}
+
+func runSinglePassCheck(ctx context.Context, out, errOut io.Writer, cfg *config.Config, eng *engine.Engine, clientID string) error {
 	verdicts := eng.Once(ctx)
-
 	report.WriteTable(out, verdicts)
 
-	if !cfg.DryRun && report.AnyNotReady(verdicts) {
-		if err := sendNotification(ctx, cfg, clientID, verdicts); err != nil {
-			_, _ = fmt.Fprintln(errOut, "notify:", err)
-		}
+	notReady := report.AnyNotReady(verdicts)
+	if err := maybeNotifySinglePass(ctx, cfg, clientID, notReady, verdicts); err != nil {
+		_, _ = fmt.Fprintln(errOut, "notify:", err)
 	}
-
-	if report.AnyNotReady(verdicts) {
+	if notReady {
 		return exitcode.New(exitcode.Failure, fmt.Errorf("one or more resources are not ready"))
 	}
 	return nil
+}
+
+func maybeNotifySinglePass(ctx context.Context, cfg *config.Config, clientID string, notReady bool, verdicts []check.Verdict) error {
+	if cfg.DryRun || (!notReady && !cfg.ForceNotification) {
+		return nil
+	}
+	if notReady {
+		return sendNotification(ctx, cfg, clientID, verdicts)
+	}
+	return sendReportNotification(ctx, cfg, clientID, verdicts)
 }
 
 // writeTickLog emits a minimal per-pass line to errOut (D-03). Full table
@@ -197,6 +218,16 @@ func sendRepeatNotification(ctx context.Context, cfg *config.Config, clientID st
 		return err
 	}
 	msg := notify.BuildRepeatMessage(clientID, cfg.Cluster.Name, verdicts, time.Now().UTC())
+	return notify.FanOut(ctx, senders, msg)
+}
+
+// sendReportNotification fans out a scheduled healthy digest (force-notification).
+func sendReportNotification(ctx context.Context, cfg *config.Config, clientID string, verdicts []check.Verdict) error {
+	senders, err := buildSenders(cfg)
+	if err != nil || senders == nil {
+		return err
+	}
+	msg := notify.BuildReportMessage(clientID, cfg.Cluster.Name, verdicts, time.Now().UTC())
 	return notify.FanOut(ctx, senders, msg)
 }
 

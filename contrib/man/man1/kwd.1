@@ -1,6 +1,6 @@
 .\" kwd(1) - Kubernetes workload readiness watchdog
 .\" Manual page for kwd
-.TH KWD 1 "2026-11-02" "kwd v0.3.0" "User Commands"
+.TH KWD 1 "2026-11-06" "kwd v0.4.0" "User Commands"
 .SH NAME
 kwd \- Kubernetes workload readiness watchdog
 .SH SYNOPSIS
@@ -54,7 +54,7 @@ Validate config and print the normalized check plan (no cluster contact).
 Print the resolved Kubernetes API target (cluster and context name).
 .TP
 .B notify test
-Notification helper (reserved; reports not available in v0.1.0).
+Send a synthetic test notification to all configured sinks (no cluster contact).
 .TP
 .B version
 Print version, commit, build date, and branch.
@@ -127,6 +127,11 @@ Override
 (re-notify unhealthy every completed gap while firing). YAML →
 .B KWD_REPEAT_WHILE_FIRING
 → flag when set.
+.TP
+.B \-\-force\-notification
+Single-pass only: always send notifications after the check, including when
+every resource is ready (scheduled health digest). Ignored when
+.IR "interval > 0" .
 .SH CONFIGURATION
 Configuration is a YAML file with these top-level blocks:
 .IR cluster ,

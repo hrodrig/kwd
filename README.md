@@ -2,7 +2,7 @@
 
 <a id="top"></a>
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/hrodrig/kwd/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/hrodrig/kwd/releases)
 [![GitHub release](https://img.shields.io/github/v/release/hrodrig/kwd)](https://github.com/hrodrig/kwd/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Go 1.27.3](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://go.dev/dl/)
@@ -93,7 +93,7 @@ config.yml ─► resolve client identity ─► load Kubernetes client ─► c
 
 `kwd` loads a declarative YAML config, resolves which cluster to talk to (`kube.context`), builds a typed **client-go** clientset (no `kubectl` subprocess), and checks every declared resource against its **readiness** rules. The **same** check path runs in single-pass and daemon shapes. The report is printed to stdout on transitions (daemon) or once (single-pass); exit codes apply to single-pass only — the daemon exits `0` on SIGINT/SIGTERM and exposes health over HTTP when configured.
 
-**Shipped (v0.3.0):** `deployment` / `statefulset`, single-pass and daemon (`interval > 0`), hysteresis / `repeat_while_firing`, HTTP `/healthz` + `kwd_*` `/metrics`, Slack sink, `analyze` / `target`, FreeBSD/OpenBSD port skeletons, Homebrew tap (`brew install hrodrig/kwd/kwd`). Later: more kinds, sinks, `doctor`, packaging polish — [Roadmap](#roadmap).
+**Shipped (v0.4.0):** `deployment` / `statefulset`, single-pass and daemon (`interval > 0`), hysteresis / `repeat_while_firing`, HTTP `/healthz` + `kwd_*` `/metrics`, Slack attachments (`HEALTH CHECK` / `EMERGENCY`), `--force-notification`, `notify test`, `analyze` / `target`, FreeBSD/OpenBSD port skeletons, Homebrew tap (`brew install hrodrig/kwd/kwd`). Later: more kinds, sinks, `doctor`, packaging polish — [Roadmap](#roadmap).
 
 [↑ Back to top](#top)
 
@@ -241,7 +241,7 @@ Contract details: [SPECIFICATIONS.md](SPECIFICATIONS.md) §§2, 8–9.
 
 ## Notifications
 
-When a check finds a **not-ready** resource (and `dry_run` is false), `kwd` sends one alert per configured sink. **v0.1.0 ships the Slack sink.** Daemon shape notifies on **transitions** (and optional repeats), not every tick.
+When a check finds a **not-ready** resource (and `dry_run` is false), `kwd` sends one alert per configured sink. **Slack** ships today as a colored Incoming Webhook **attachment** (green OK / red alert, Cluster / Client / Time + Details). Daemon shape notifies on **transitions** (and optional repeats), not every tick.
 
 ```yaml
 notifications:
@@ -251,7 +251,21 @@ notifications:
 
 The webhook URL comes from **`KWD_SLACK_WEBHOOK`** (fail-closed): if the sink is declared but the env var is missing, `kwd` errors on stderr rather than silently skipping the alert. Notification delivery is **best-effort** — a failed send is logged, and the check's exit code still reflects resource health, not delivery.
 
-More sinks (and `--force-notification` for scheduled healthy reports) land in later releases.
+**Scheduled healthy digests** (cron / systemd timer):
+
+```bash
+kwd check --config /etc/kwd/kwd.yml --force-notification
+```
+
+Single-pass only (`interval: 0`). Always FanOut after the pass; exit still `0`/`1` from readiness. Ignored when `interval > 0`.
+
+**Smoke sinks** without touching the cluster:
+
+```bash
+kwd notify test --config /etc/kwd/kwd.yml
+```
+
+More sink types land in later releases.
 
 [↑ Back to top](#top)
 
@@ -305,13 +319,13 @@ go install github.com/hrodrig/kwd@latest
 
 This installs the binary to `$GOBIN` (default `$HOME/go/bin`). Ensure `$GOBIN` is on your `PATH`.
 
-**Pre-built binaries:** [Releases](https://github.com/hrodrig/kwd/releases) provide binaries (tar.gz, zip), `.deb`, and `.rpm` packages for Linux, macOS, and Windows (amd64 and arm64). Replace `v0.3.0` and `amd64` with your desired version and arch.
+**Pre-built binaries:** [Releases](https://github.com/hrodrig/kwd/releases) provide binaries (tar.gz, zip), `.deb`, and `.rpm` packages for Linux, macOS, and Windows (amd64 and arm64). Replace `v0.4.0` and `amd64` with your desired version and arch.
 
 | Platform | Command |
 |----------|---------|
-| **Debian/Ubuntu** | `wget -q -O /tmp/kwd.deb https://github.com/hrodrig/kwd/releases/download/v0.3.0/kwd_v0.3.0_linux_amd64.deb && sudo dpkg -i /tmp/kwd.deb` |
-| **Fedora / RHEL / AlmaLinux / Rocky** | `sudo dnf install https://github.com/hrodrig/kwd/releases/download/v0.3.0/kwd_v0.3.0_linux_amd64.rpm` |
-| **Alpine / tarball** | `wget -qO- https://github.com/hrodrig/kwd/releases/download/v0.3.0/kwd_v0.3.0_linux_amd64.tar.gz \| tar -xzf - -C /usr/local/bin` |
+| **Debian/Ubuntu** | `wget -q -O /tmp/kwd.deb https://github.com/hrodrig/kwd/releases/download/v0.4.0/kwd_v0.4.0_linux_amd64.deb && sudo dpkg -i /tmp/kwd.deb` |
+| **Fedora / RHEL / AlmaLinux / Rocky** | `sudo dnf install https://github.com/hrodrig/kwd/releases/download/v0.4.0/kwd_v0.4.0_linux_amd64.rpm` |
+| **Alpine / tarball** | `wget -qO- https://github.com/hrodrig/kwd/releases/download/v0.4.0/kwd_v0.4.0_linux_amd64.tar.gz \| tar -xzf - -C /usr/local/bin` |
 | **FreeBSD** | Port skeleton in [`contrib/freebsd/`](contrib/freebsd/) — not yet in the official ports tree. Local: `make port-freebsd-sync && make dist-freebsd`, then install from that port. Or use a [release](https://github.com/hrodrig/kwd/releases) FreeBSD tarball / `go install`. |
 | **OpenBSD** | Port skeleton in [`contrib/openbsd/port/`](contrib/openbsd/port/) — submit to `ports@openbsd.org` when ready. Local: `make port-openbsd-sync && make dist-openbsd`. Or use a release OpenBSD tarball / `go install`. |
 | **Homebrew** | `brew install hrodrig/kwd/kwd` ([homebrew-kwd](https://github.com/hrodrig/homebrew-kwd); cask updated by GoReleaser on each tag) |
@@ -374,11 +388,11 @@ Use in-cluster config, or mount a kubeconfig to check a remote cluster.
 
 ## Roadmap
 
-**Shipped:** **v0.3.0** — single-pass + daemon `check`, hysteresis, HTTP `/healthz` + `/metrics`, Slack sink, `analyze` / `target`, `client.id` + `cluster` identity, BSD port skeletons, Homebrew tap.
+**Shipped:** **v0.4.0** — single-pass + daemon `check`, hysteresis, HTTP `/healthz` + `/metrics`, Slack attachments + `--force-notification` + `notify test`, `analyze` / `target`, `client.id` + `cluster` identity, BSD port skeletons, Homebrew tap.
 
 | Slice | Scope |
 |-------|-------|
-| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks + `notify test`, `doctor`, krew; submit FreeBSD/OpenBSD ports upstream |
+| **Later** | Kinds `daemonset` / `service` / `pvc`, more sinks, `doctor`, krew; submit FreeBSD/OpenBSD ports upstream |
 
 Each slice is additive on the same check path. Behavior details: [SPECIFICATIONS.md](SPECIFICATIONS.md). Product notes: [docs/README.md](docs/README.md).
 

@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
+## [0.4.0] - 2026-11-06
+
+### Added
+
+- `--force-notification` on `kwd check` (single-pass): always FanOut after the pass, including healthy digests (`HEALTH CHECK: All resources ready`); ignored in daemon mode with a stderr warning (#24).
+- `kwd notify test`: synthetic FanOut to all configured sinks without cluster contact (#25).
+- Slack Incoming Webhook **attachments** (color bar, structured mrkdwn fields, `✅`/`❌` details) instead of plain `{"text":…}` (#26).
+
+### Changed
+
+- Slack attachment mrkdwn: `HEALTH CHECK: …` (healthy/test) and `EMERGENCY: …` (unhealthy) headlines; attachment title `❌ Error` on alert; optional Namespace (from checked refs); Status (`ALL RESOURCES READY` / `RESOURCES MAY BE INCONSISTENT` / `NOTIFY TEST`) and Action Required (`NONE` / `IMMEDIATE ATTENTION NEEDED`).
+
+### Security
+
+- Bump `golang.org/x/net` to **v0.62.0** (and `x/text` to **v0.43.0**) for GO-2026-6860; raise `dependency-pins.txt` floors.
+
+[↑ Back to top](#top)
+
 ## [0.3.0] - 2026-11-02
 
 ### Fixed
@@ -72,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [↑ Back to top](#top)
 
-[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hrodrig/kwd/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hrodrig/kwd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hrodrig/kwd/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/hrodrig/kwd/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/hrodrig/kwd/compare/v0.1.0...v0.2.0
