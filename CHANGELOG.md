@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Daemon HTTP listener disables Multipath TCP (`ListenConfig.SetMultipathTCP(false)`) to reduce exposure to CVE-2026-98432 on Go 1.24+ Linux hosts; document `GODEBUG=multipathtcp=0` and kernel patching in README (#33).
+
 [↑ Back to top](#top)
 
 ## [0.4.0] - 2026-11-06

@@ -41,8 +41,11 @@ func NewHTTPServer(snap *TickSnapshot, healthPath, metricsPath string) *http.Ser
 }
 
 // ListenTCP binds addr for fail-fast before Daemon (D-18).
+// Multipath TCP is disabled explicitly (CVE-2026-98432 / Go 1.24+ listen default).
 func ListenTCP(addr string) (net.Listener, error) {
-	return net.Listen("tcp", addr)
+	var lc net.ListenConfig
+	lc.SetMultipathTCP(false)
+	return lc.Listen(context.Background(), "tcp", addr)
 }
 
 // ServeHTTP serves srv on ln in a new goroutine and waits until Serve has
